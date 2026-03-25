@@ -15,9 +15,14 @@
         body { font-family: 'Pretendard', sans-serif; background-color: #f1f5f9; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .custom-scroll::-webkit-scrollbar { height: 10px; }
+        .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 10px; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 2px solid #f1f5f9; }
+        .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
         .icon-box { display: inline-flex; align-items: center; justify-content: center; }
         .premium-shadow { box-shadow: 0 10px 40px -10px rgba(0,0,0,0.08), 0 0 15px rgba(0,0,0,0.03); }
-        .inner-capsule { box-shadow: inset 0 2px 10px rgba(0,0,0,0.1); }
     </style>
 </head>
 <body>
@@ -47,7 +52,7 @@
         const DonutChartSVG = ({ data, title, totalQuestions }) => {
             const total = data.reduce((sum, d) => sum + d.value, 0);
             let cumulativePercent = 0;
-            if (total === 0) return <div className="flex items-center justify-center h-full text-slate-400 font-bold font-black">데이터가 없습니다.</div>;
+            if (total === 0) return <div className="flex items-center justify-center h-full text-slate-400 font-black">데이터가 없습니다.</div>;
 
             return (
                 <div className="flex flex-col items-center w-full p-0 m-0">
@@ -99,10 +104,10 @@
                         {data.map((slice, i) => (
                             <div key={i} className="flex items-center justify-between text-[13px] font-black text-slate-700">
                                 <div className="flex items-center gap-1.5 truncate pr-2">
-                                    <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></div>
+                                    <div className="w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></div>
                                     <span className="truncate">{slice.name}</span>
                                 </div>
-                                <span className="text-slate-500 shrink-0 ml-1">({slice.value})</span>
+                                <span className="text-slate-500 shrink-0 ml-1 font-black">({slice.value})</span>
                             </div>
                         ))}
                     </div>
@@ -132,10 +137,8 @@
             const [activeTab, setActiveTab] = useState(TABS[0].id); 
             const [filters, setFilters] = useState({ school: ['전체'], period: '전체', majorUnit: '전체', difficulty: '전체', type: '전체' });
             const [pendingData, setPendingData] = useState(null);
-            const [showGuide, setShowGuide] = useState(false);
             const [showManageModal, setShowManageModal] = useState(false);
             const [isDragging, setIsDragging] = useState(false);
-            const dragCounter = useRef(0);
 
             useEffect(() => {
                 const initFirebase = async () => {
@@ -153,7 +156,7 @@
                             firebaseDb = fsLib.getFirestore(firebaseApp);
                             fbLibs = { app: appLib, auth: authLib, fs: fsLib };
                             setIsCloud(true);
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token && !myFirebaseConfig) {
+                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                                 await authLib.signInWithCustomToken(firebaseAuth, __initial_auth_token);
                             } else {
                                 await authLib.signInAnonymously(firebaseAuth);
@@ -223,12 +226,22 @@
                         activeSchools.forEach(school => {
                             const sub = filteredData.filter(d => d.majorUnit === unit && d.school === school);
                             row[school] = { total: sub.length };
-                            DIFF_LEVELS.forEach(lvl => { row[school][lvl] = sub.filter(d => d.difficulty === lvl).length; });
+                            DIFF_LEVELS.forEach(lvl => { 
+                                row[school][lvl] = sub.filter(d => {
+                                    const m = String(d.difficulty || '').match(/[1-8]/);
+                                    return (m ? m[0] : '4') === lvl;
+                                }).length; 
+                            });
                         });
                     } else {
                         const sub = filteredData.filter(d => d.majorUnit === unit);
                         row.single = { total: sub.length };
-                        DIFF_LEVELS.forEach(lvl => { row.single[lvl] = sub.filter(d => d.difficulty === lvl).length; });
+                        DIFF_LEVELS.forEach(lvl => { 
+                            row.single[lvl] = sub.filter(d => {
+                                const m = String(d.difficulty || '').match(/[1-8]/);
+                                return (m ? m[0] : '4') === lvl;
+                            }).length; 
+                        });
                     }
                     return row;
                 });
@@ -237,21 +250,39 @@
             const difficultyDistribution = useMemo(() => {
                 return DIFF_LEVELS.map(level => {
                     const row = { level };
-                    if (isComparing) activeSchools.forEach(school => { row[school] = filteredData.filter(d => d.difficulty === level && d.school === school).length; });
-                    else row.count = filteredData.filter(d => d.difficulty === level).length;
+                    if (isComparing) {
+                        activeSchools.forEach(school => { 
+                            row[school] = filteredData.filter(d => {
+                                const m = String(d.difficulty || '').match(/[1-8]/);
+                                return (m ? m[0] : '4') === level && d.school === school;
+                            }).length; 
+                        });
+                    } else {
+                        row.count = filteredData.filter(d => {
+                            const m = String(d.difficulty || '').match(/[1-8]/);
+                            return (m ? m[0] : '4') === level;
+                        }).length;
+                    }
                     return row;
                 });
             }, [filteredData, isComparing, activeSchools]);
 
             const schoolVerticalData = useMemo(() => {
                 return activeSchools.map(school => {
-                    const sData = data.filter(d => d.school === school);
+                    const sData = filteredData.filter(d => d.school === school);
                     const total = sData.length;
                     const diffCounts = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0 };
-                    sData.forEach(d => { if (diffCounts[d.difficulty] !== undefined) diffCounts[d.difficulty]++; });
+                    
+                    if (total > 0) {
+                        sData.forEach(d => {
+                            const m = String(d.difficulty || '').match(/[1-8]/);
+                            const lvl = m ? m[0] : '4';
+                            diffCounts[lvl]++;
+                        });
+                    }
                     return { school, total, diffCounts };
-                });
-            }, [activeSchools, data]);
+                }).filter(row => row.total > 0);
+            }, [activeSchools, filteredData]);
 
             const schoolTotals = useMemo(() => {
                 const totals = {};
@@ -275,7 +306,7 @@
                     try {
                         const workbook = XLSX.read(new Uint8Array(evt.target.result), { type: 'array' });
                         const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
-                        const headerIdx = json.findIndex(row => row.some(cell => String(cell).includes('학교명') || String(cell).includes('대단원')));
+                        const headerIdx = json.findIndex(row => row && row.some(cell => String(cell).includes('학교명') || String(cell).includes('대단원') || String(cell).includes('난이도')));
                         if (headerIdx === -1) throw new Error("헤더를 찾을 수 없습니다.");
                         const header = json[headerIdx].map(h => String(h || '').trim());
                         const findIdx = (names) => names.reduce((acc, name) => acc !== -1 ? acc : header.findIndex(h => h.includes(name)), -1);
@@ -284,9 +315,9 @@
                             qNum: findIdx(['문항번호', '번호']), type: findIdx(['문항유형', '문제유형', '유형']), major: findIdx(['대단원', '단원']),
                             minor: findIdx(['소단원']), diff: findIdx(['난이도']), source: findIdx(['출처'])
                         };
-                        const newData = json.slice(headerIdx + 1).filter(row => row.length >= 5).map((cols, i) => {
+                        const newData = json.slice(headerIdx + 1).filter(row => row && row.length >= 5).map((cols, i) => {
                             const rawDiff = String(cols[idxMap.diff] || '4');
-                            const diffNum = rawDiff.match(/\d+/)?.[0] || '4';
+                            const diffNum = rawDiff.match(/[1-8]/)?.[0] || '4'; 
                             return {
                                 id: Date.now() + i + Math.random(), period: String(cols[idxMap.period] || '미상').trim(), school: String(cols[idxMap.school] || '미상').trim(),
                                 grade: String(cols[idxMap.grade] || '-').trim(), subject: String(cols[idxMap.subject] || '-').trim(), questionNum: String(cols[idxMap.qNum] || '-').trim(),
@@ -296,6 +327,7 @@
                         });
                         setPendingData({ filename: file.name, items: newData });
                     } catch (error) { alert("파일 분석 오류: " + error.message); }
+                    if(fileInputRef.current) fileInputRef.current.value = '';
                 };
                 reader.readAsArrayBuffer(file);
             };
@@ -320,7 +352,7 @@
             };
 
             const handleClearData = async () => {
-                if(window.confirm("정말로 모든 데이터를 삭제하시겠습니까?")) {
+                if(window.confirm("모든 데이터를 초기화하시겠습니까?")) {
                     if (isCloud && user) {
                         const { collection, getDocs, deleteDoc } = fbLibs.fs;
                         const snap = await getDocs(collection(firebaseDb, 'artifacts', appId, 'public', 'data', 'math_questions'));
@@ -343,7 +375,7 @@
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4 text-slate-900">
                             <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full">
                                 <div className="flex justify-between items-center mb-6 border-b pb-4"><h2 className="text-2xl font-black flex items-center gap-2"><Icon name="settings" className="text-indigo-500"/> 데이터 관리</h2><button onClick={() => setShowManageModal(false)}><Icon name="x-circle" size={28} className="text-slate-400"/></button></div>
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide mb-6">
+                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide mb-6 font-black">
                                     {uniqueExams.map((exam, idx) => (
                                         <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border">
                                             <div><div className="text-indigo-600 font-black">{exam.school}</div><div className="text-slate-500 text-sm font-bold">{exam.period} ({exam.count}Qs)</div></div>
@@ -361,7 +393,7 @@
 
                     {pendingData && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4 text-slate-900">
-                            <div className="bg-white rounded-2xl p-8 max-w-lg w-full text-center">
+                            <div className="bg-white rounded-2xl p-8 max-w-lg w-full text-center shadow-2xl">
                                 <Icon name="check-circle" size={56} className="text-emerald-500 mx-auto mb-4" />
                                 <h2 className="text-2xl font-black mb-2 tracking-tight">분석할 데이터 준비 완료</h2>
                                 <p className="font-bold text-slate-500 mb-8 leading-relaxed">선택한 파일에서 <span className="text-indigo-600 underline">{pendingData.items.length}개</span>의 문항을 읽어왔습니다.</p>
@@ -374,22 +406,21 @@
                         <header className="flex justify-between items-center bg-white py-2 px-6 rounded-2xl premium-shadow border border-slate-100">
                             <div className="flex items-center gap-3">
                                 <h1 className="text-base font-black text-slate-800 flex items-center gap-2"><Icon name="file-text" className="text-indigo-600"/> Math Analysis</h1>
-                                <span className="text-slate-400 text-[10px] font-bold border-l pl-3 ml-1 uppercase">{totalUnitsAnalyzed} Units | {totalQuestionsAnalyzed} Qs</span>
+                                <span className="text-slate-400 text-[10px] font-bold border-l pl-3 ml-1 uppercase font-black">{totalUnitsAnalyzed} Units | {totalQuestionsAnalyzed} Qs</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button onClick={() => setShowGuide(true)} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold text-slate-400 hover:bg-slate-100">가이드</button>
-                                <input type="file" accept=".xlsx" ref={fileInputRef} className="hidden" onChange={(e) => processFile(e.target.files[0])} />
-                                <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 bg-indigo-50 text-indigo-700 font-black rounded-lg text-[10px] hover:bg-indigo-100">엑셀 업로드</button>
+                                <input type="file" accept=".xlsx, .xls, .csv" ref={fileInputRef} className="hidden" onChange={(e) => processFile(e.target.files[0])} />
+                                <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 bg-indigo-50 text-indigo-700 font-black rounded-lg text-[10px] hover:bg-indigo-100 transition-all">엑셀 업로드</button>
                                 <button onClick={() => setShowManageModal(true)} className="px-3 py-1 bg-rose-50 text-rose-600 font-black rounded-lg text-[10px] hover:bg-rose-100 transition-all shadow-sm">데이터 관리/삭제</button>
                             </div>
                         </header>
 
-                        <section className="bg-white p-2 rounded-2xl premium-shadow border border-slate-100 flex flex-wrap gap-2 items-center">
+                        <section className="bg-white p-2 rounded-2xl premium-shadow border border-slate-100 flex flex-wrap gap-2 items-center font-black">
                             <details className="relative z-50">
-                                <summary className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-black cursor-pointer list-none flex items-center gap-2 text-slate-600 text-slate-900 shadow-sm">학교: {filters.school.includes('전체') ? '전체' : filters.school.length} <Icon name="chevron-down" size={10}/></summary>
+                                <summary className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-black cursor-pointer list-none flex items-center gap-2 text-slate-900 shadow-sm">학교: {filters.school.includes('전체') ? '전체' : filters.school.length} <Icon name="chevron-down" size={10}/></summary>
                                 <div className="absolute top-full left-0 w-48 bg-white border shadow-xl rounded-lg mt-1 p-2 z-50">
                                     {options.school.map(opt => (
-                                        <label key={opt} className="flex items-center gap-2 p-1 hover:bg-indigo-50 rounded cursor-pointer"><input type="checkbox" checked={filters.school.includes(opt)} onChange={() => {
+                                        <label key={opt} className="flex items-center gap-2 p-1 hover:bg-indigo-50 rounded cursor-pointer font-black"><input type="checkbox" checked={filters.school.includes(opt)} onChange={() => {
                                             setFilters(prev => {
                                                 let next = [...prev.school];
                                                 if(opt === '전체') return {...prev, school: ['전체']};
@@ -403,20 +434,20 @@
                                 </div>
                             </details>
                             {['period', 'majorUnit', 'difficulty'].map((key) => (
-                                <select key={key} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-black focus:outline-none text-slate-600 shadow-sm" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value }))}>
-                                    <option value="전체">{key === 'period' ? '시기' : key === 'majorUnit' ? '단원' : '난이도'}</option>
-                                    {options[key].filter(o=>o!=='전체').map(opt => <option key={opt} value={opt}>{key === 'difficulty' ? DIFF_LABELS[opt] : opt}</option>)}
+                                <select key={key} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-black focus:outline-none text-slate-600 shadow-sm font-black" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value }))}>
+                                    <option value="전체" className="font-black">{key === 'period' ? '시기' : key === 'majorUnit' ? '단원' : '난이도'}</option>
+                                    {options[key].filter(o=>o!=='전체').map(opt => <option key={opt} value={opt} className="font-black">{key === 'difficulty' ? DIFF_LABELS[opt] : opt}</option>)}
                                 </select>
                             ))}
                         </section>
 
                         <div className="flex gap-1 border-b border-slate-200">
                             {TABS.map(tab => (
-                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-1 text-[11px] md:text-[12px] font-black transition-all border-b-2 ${activeTab === tab.id ? 'text-indigo-600 border-indigo-600 bg-indigo-50/30 rounded-t-md shadow-sm' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>{tab.label}</button>
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-1 text-[11px] md:text-[12px] font-black transition-all border-b-2 font-black ${activeTab === tab.id ? 'text-indigo-600 border-indigo-600 bg-indigo-50/30 rounded-t-md shadow-sm' : 'text-slate-400 border-transparent hover:text-slate-700'}`}>{tab.label}</button>
                             ))}
                         </div>
 
-                        <div className="bg-white rounded-3xl premium-shadow border border-slate-100 p-2 flex flex-col gap-1">
+                        <div className="bg-white rounded-3xl premium-shadow border border-slate-100 p-2 flex flex-col gap-1 font-black">
                             {activeTab === 'unit-analysis' && (
                                 <div className="flex flex-col lg:flex-row gap-2 w-full">
                                     <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center border-r border-slate-50 min-h-[460px] justify-center">
@@ -429,11 +460,11 @@
                                             })}
                                         </div>
                                     </div>
-                                    <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center min-h-[460px] justify-center">
+                                    <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center min-h-[460px] justify-center text-slate-900 font-black">
                                         <div className="text-[14px] font-black text-emerald-900 mb-2 flex items-center gap-2 tracking-tight"><Icon name="layers" size={18} className="text-emerald-400" /> 단원별 난이도 세부 구조</div>
                                         <div className="flex relative w-full pt-1 h-[400px]">
                                             <div className="absolute left-0 top-1 bottom-[5.5rem] w-8 flex flex-col justify-between items-end text-[10px] font-black text-slate-300 border-r-2 border-slate-50 pr-2">{[7,6,5,4,3,2,1,0].map(n => <span key={n}>{n}</span>)}</div>
-                                            <div className="ml-10 flex-1 flex items-end justify-around gap-2 overflow-x-auto pb-[5.5rem] pr-2 scrollbar-hide text-slate-900">
+                                            <div className="ml-10 flex-1 flex items-end justify-around gap-2 overflow-x-auto pb-[5.5rem] pr-2 scrollbar-hide">
                                                 {unitDistribution.map((item, idx) => (
                                                     <div key={idx} className="flex flex-col items-center h-full justify-end min-w-[50px] max-w-[80px] w-full relative">
                                                         <div className="w-10 h-full bg-slate-50 rounded-full inner-capsule flex flex-col justify-end p-1 overflow-hidden shadow-sm">
@@ -457,99 +488,129 @@
                             )}
 
                             {activeTab === 'level-count' && (
-                                <div className="flex flex-col items-center w-full p-4 min-h-[460px] justify-center">
-                                    <div className="text-[16px] font-black text-indigo-900 mb-8 flex items-center gap-2"><Icon name="activity" size={20} className="text-emerald-500" /> [전체 문항대비 난이도비율]</div>
-                                    {/* 🚀 가로 너비 60%로 고정 및 중앙 정렬 */}
-                                    <div className="flex-1 flex flex-col justify-end w-full md:w-[60%] mx-auto relative pt-8 pb-10 h-[300px]">
-                                        <div className="absolute bottom-10 left-0 right-0 h-4 bg-gradient-to-b from-slate-200 to-slate-300 rounded-full shadow-inner opacity-50"></div>
-                                        {/* 🚀 산 사이 간격 축소 (gap-0) */}
-                                        <div className="grid grid-cols-8 gap-0 w-full h-full relative z-10">
-                                            {difficultyDistribution.map((item, idx) => {
-                                                const count = isComparing ? (item[activeSchools[0]] || 0) : (item.count || 0);
-                                                const total = isComparing ? (schoolTotals[activeSchools[0]] || 1) : (schoolTotals.single || 1);
-                                                const actualPct = total > 0 ? (count / total) * 100 : 0;
-                                                // 🚀 시인성을 위해 최고 높이 기준을 50%로 설정하여 길게 표현
-                                                const visualPct = Math.min((actualPct / 50) * 100, 100); 
-                                                const pathData = "M 0 100 C 20 100, 35 0, 50 0 C 65 0, 80 100, 100 100 Z";
-                                                return (
-                                                    <div key={idx} className="flex flex-col items-center justify-end h-full w-full">
-                                                        <div className="w-[95%] flex flex-col justify-end items-center relative transition-all duration-700" style={{ height: `${Math.max(visualPct, 1)}%` }}>
-                                                            {actualPct > 0 && <span className="absolute -top-6 text-[11px] font-black text-slate-600 bg-white px-1.5 rounded border shadow-sm">{actualPct.toFixed(1)}%</span>}
-                                                            {actualPct > 0 && (
-                                                                <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full drop-shadow-lg">
-                                                                    <path d={pathData} fill={DIFFICULTY_COLORS[item.level]} fillOpacity="0.85" />
-                                                                </svg>
-                                                            )}
-                                                            {actualPct > 1 && <span className="absolute bottom-[20%] text-white font-black text-sm drop-shadow-md">{count}</span>}
+                                <div className="flex flex-col items-center w-full p-4 min-h-[550px] justify-center relative">
+                                    <div className="text-[16px] font-black text-indigo-900 mb-12 flex items-center gap-2"><Icon name="activity" size={20} className="text-emerald-500" /> [전체 문항대비 난이도비율]</div>
+                                    
+                                    <div className="flex flex-row w-full max-w-[60%] mx-auto relative h-[350px] mt-8">
+                                        <div className="w-10 border-r-2 border-slate-800 relative h-[calc(100%-48px)] mr-2">
+                                            <span className="absolute top-0 right-2 translate-y-[-50%] text-[11px] font-black text-slate-600">50%</span>
+                                            <span className="absolute top-[20%] right-2 translate-y-[-50%] text-[11px] font-black text-slate-600">40%</span>
+                                            <span className="absolute top-[40%] right-2 translate-y-[-50%] text-[11px] font-black text-slate-600">30%</span>
+                                            <span className="absolute top-[60%] right-2 translate-y-[-50%] text-[11px] font-black text-slate-600">20%</span>
+                                            <span className="absolute top-[80%] right-2 translate-y-[-50%] text-[11px] font-black text-slate-600">10%</span>
+                                            <span className="absolute bottom-0 right-2 translate-y-[50%] text-[11px] font-black text-slate-600">0%</span>
+                                        </div>
+
+                                        <div className="flex-1 flex flex-col relative h-[calc(100%-48px)] border-b-2 border-slate-800">
+                                            {[0, 20, 40, 60, 80].map(pct => (
+                                                <div key={pct} className="absolute left-0 w-full border-t border-dashed border-slate-200 z-0" style={{ top: `${pct}%` }}></div>
+                                            ))}
+                                            
+                                            <div className="absolute bottom-0 left-0 w-full h-full flex items-end gap-2 md:gap-4 px-2 z-10">
+                                                {difficultyDistribution.map((item, idx) => {
+                                                    const count = isComparing ? (item[activeSchools[0]] || 0) : (item.count || 0);
+                                                    const total = isComparing ? (schoolTotals[activeSchools[0]] || 1) : (schoolTotals.single || 1);
+                                                    const actualPct = total > 0 ? (count / total) * 100 : 0;
+                                                    const visualPct = Math.min((actualPct / 50) * 100, 100); 
+                                                    
+                                                    return (
+                                                        <div key={idx} className="flex-1 h-full flex justify-center items-end">
+                                                            <div 
+                                                                className="w-full md:w-[80%] rounded-t-sm transition-all duration-700 shadow-md flex items-start justify-center pt-2" 
+                                                                style={{ height: `${visualPct}%`, backgroundColor: DIFFICULTY_COLORS[item.level] }}
+                                                            >
+                                                            </div>
                                                         </div>
-                                                        <div className="mt-2 text-[10px] font-black text-slate-700 px-1 py-0.5 rounded text-center leading-tight h-8 flex items-center justify-center" style={{ backgroundColor: DIFFICULTY_COLORS[item.level] }}>{DIFF_LABELS[item.level]}</div>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            <div className="absolute top-full left-0 w-full h-12 flex gap-2 md:gap-4 px-2 mt-2">
+                                                {difficultyDistribution.map((item, idx) => (
+                                                    <div key={`label-${idx}`} className="flex-1 flex justify-center">
+                                                        <div className="w-full text-[10px] md:text-[11px] font-black text-slate-800 p-1 rounded-md text-center leading-tight shadow-sm border-t-4 bg-white" style={{ borderTopColor: DIFFICULTY_COLORS[item.level] }}>
+                                                            {DIFF_LABELS[item.level]}
+                                                        </div>
                                                     </div>
-                                                )
-                                            })}
+                                                ))}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
                             )}
 
                             {activeTab === 'school-diff' && (
-                                <div className="flex flex-col items-center w-full p-4 min-h-[460px] justify-center">
+                                <div className="flex flex-col items-center w-full p-4 min-h-[460px] justify-center relative">
                                     <div className="text-[16px] font-black text-indigo-900 mb-8 flex items-center gap-2"><Icon name="school" size={20} className="text-indigo-500" /> 학교별 종합 난이도 분포</div>
-                                    <div className="flex gap-4 overflow-x-auto w-full pb-4 scrollbar-hide justify-center">
+                                    <div className="flex gap-6 overflow-x-auto w-full pb-6 custom-scroll justify-start px-4 text-slate-900">
                                         {schoolVerticalData.map((row) => (
-                                            <div key={row.school} className="min-w-[180px] max-w-[220px] bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm">
-                                                <div className="font-black text-[14px] text-slate-800 mb-0.5 truncate w-full text-center">{row.school}</div>
+                                            <div key={row.school} className="min-w-[180px] max-w-[180px] bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm flex-shrink-0">
+                                                <div className="font-black text-[14px] mb-0.5 truncate w-full text-center text-slate-800">{row.school}</div>
                                                 <div className="text-[10px] text-slate-400 font-bold mb-4">({row.total}문항)</div>
-                                                {/* 🚀 요청하신 직사각형 막대 그래프 형태로 변경 */}
-                                                <div className="flex-1 flex items-end justify-center gap-1.5 w-full h-[180px] border-b-2 border-slate-50 pb-1 px-2">
-                                                    {DIFF_LEVELS.map(diff => {
-                                                        const actualPct = row.total > 0 ? (row.diffCounts[diff] / row.total) * 100 : 0;
-                                                        // 시각적으로 50%가 꽉 차게 보이도록 높이 조절
-                                                        const visualPct = Math.min((actualPct / 50) * 100, 100); 
-                                                        return (
-                                                            <div key={diff} className="flex-1 flex flex-col justify-end h-full relative group">
-                                                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 text-[8px] font-black text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity z-20 whitespace-nowrap bg-white px-1 rounded shadow-sm border">
-                                                                    {actualPct.toFixed(0)}%
-                                                                </span>
-                                                                <div className="w-full transition-all duration-500 hover:brightness-90 shadow-sm" style={{ height: `${actualPct > 0 ? Math.max(visualPct, 2) : 0}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}>
-                                                                </div>
-                                                                {actualPct > 10 && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 text-[8px] font-black text-white leading-none">{actualPct.toFixed(0)}</span>}
-                                                            </div>
-                                                        )
-                                                    })}
-                                                </div>
-                                                <div className="w-full flex justify-between mt-2 px-1">
-                                                    <span className="text-[8px] font-bold text-slate-400 uppercase">Easy</span>
-                                                    <span className="text-[8px] font-bold text-slate-400 uppercase">Hard</span>
+                                                
+                                                <div className="w-full h-[150px] flex relative ml-4">
+                                                    <div className="absolute left-0 top-0 bottom-0 border-l-2 border-slate-800 z-10">
+                                                        <span className="absolute top-0 right-2 translate-y-[-50%] text-[9px] font-black text-slate-600">50%</span>
+                                                        <span className="absolute top-1/2 right-2 translate-y-[-50%] text-[9px] font-black text-slate-600">25%</span>
+                                                        <span className="absolute bottom-0 right-2 translate-y-[50%] text-[9px] font-black text-slate-600">0%</span>
+                                                    </div>
+
+                                                    <div className="flex-1 h-full border-b-2 border-slate-800 relative">
+                                                        <div className="absolute top-0 left-0 w-full border-t border-dashed border-slate-200 z-0"></div>
+                                                        <div className="absolute top-1/2 left-0 w-full border-t border-dashed border-slate-200 z-0"></div>
+                                                        
+                                                        <div className="absolute bottom-0 left-0 w-full h-full flex items-end px-1 gap-[2px] z-10">
+                                                            {DIFF_LEVELS.map(diff => {
+                                                                const count = row.diffCounts[diff] || 0;
+                                                                const actualPct = row.total > 0 ? (count / row.total) * 100 : 0;
+                                                                const visualHeight = Math.min((actualPct / 50) * 100, 100); 
+                                                                
+                                                                return (
+                                                                    <div key={diff} className="flex-1 h-full flex items-end">
+                                                                        <div 
+                                                                            className="w-full transition-all duration-500 rounded-t-[2px]" 
+                                                                            style={{ height: `${visualHeight}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}
+                                                                        ></div>
+                                                                    </div>
+                                                                )
+                                                            })}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         ))}
+                                        {schoolVerticalData.length === 0 && <div className="py-20 text-slate-300 font-bold w-full text-center">데이터를 업로드해주세요.</div>}
                                     </div>
                                 </div>
                             )}
                         </div>
 
                         <section className="bg-white rounded-3xl premium-shadow border border-slate-100 overflow-hidden mt-1">
-                            <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-                                <h3 className="text-[14px] font-black text-slate-800 flex items-center gap-2"><Icon name="list" size={18} className="text-slate-400"/> 상세 문항 리스트</h3>
-                                <span className="text-[10px] font-black text-slate-400 font-bold">Total {filteredData.length}</span>
+                            <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 text-slate-900">
+                                <h3 className="text-[14px] font-black flex items-center gap-2"><Icon name="list" size={18} className="text-slate-400"/> 상세 문항 리스트</h3>
+                                <span className="text-[10px] font-black font-bold">Total {filteredData.length}</span>
                             </div>
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left text-[11px] whitespace-nowrap">
-                                    <thead className="bg-slate-50 font-black text-slate-400 uppercase tracking-tighter shadow-sm">
-                                        <tr><th className="px-6 py-2">번호</th><th className="px-6 py-2">대단원</th><th className="px-6 py-2">소단원</th><th className="px-6 py-2 text-center">난이도</th><th className="px-6 py-2">출처</th></tr>
+                                <table className="w-full text-left text-[11px] whitespace-nowrap text-slate-900 font-black">
+                                    <thead className="bg-slate-50 text-slate-400 uppercase tracking-tighter shadow-sm font-black">
+                                        <tr><th className="px-6 py-2">번호</th><th className="px-6 py-2">대단원</th><th className="px-6 py-2">소단원</th><th className="px-6 py-2 text-center">난이도</th><th className="px-6 py-2 text-center">유형</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50">
-                                        {filteredData.map(row => (
-                                            <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-1.5 font-black text-slate-900">{row.questionNum}번</td>
-                                                <td className="px-6 py-1.5 font-black text-slate-700">{row.majorUnit}</td>
-                                                <td className="px-6 py-1.5 font-bold text-slate-500">{row.minorUnit}</td>
-                                                <td className="px-6 py-1.5 text-center">
-                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black shadow-sm" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] }}>{DIFF_LABELS[row.difficulty]}</span>
-                                                </td>
-                                                <td className="px-6 py-1.5 text-slate-400 text-[10px] italic truncate max-w-[200px]">{row.source}</td>
-                                            </tr>
-                                        ))}
+                                        {filteredData.map(row => {
+                                            const m = String(row.difficulty || '').match(/[1-8]/);
+                                            const lvl = m ? m[0] : '4';
+                                            return (
+                                                <tr key={row.id} className="hover:bg-slate-50 transition-colors">
+                                                    <td className="px-6 py-1.5 font-black">{row.questionNum}번</td>
+                                                    <td className="px-6 py-1.5 text-slate-700 font-black">{row.majorUnit}</td>
+                                                    <td className="px-6 py-1.5 text-slate-500 font-black">{row.minorUnit}</td>
+                                                    <td className="px-6 py-1.5 text-center font-black">
+                                                        <span className="px-2 py-0.5 rounded-full text-[10px] text-white font-black" style={{ backgroundColor: DIFFICULTY_COLORS[lvl] }}>{DIFF_LABELS[lvl]}</span>
+                                                    </td>
+                                                    <td className="px-6 py-1.5 text-center text-slate-400 text-[10px] font-black">{row.type}</td>
+                                                </tr>
+                                            )
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
