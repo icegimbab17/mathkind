@@ -16,7 +16,6 @@
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         .icon-box { display: inline-flex; align-items: center; justify-content: center; }
-        
         .premium-shadow { box-shadow: 0 10px 40px -10px rgba(0,0,0,0.08), 0 0 15px rgba(0,0,0,0.03); }
         .inner-capsule { box-shadow: inset 0 2px 10px rgba(0,0,0,0.1); }
     </style>
@@ -28,7 +27,7 @@
         const { useState, useMemo, useRef, useEffect } = window.React;
 
         // =========================================================================
-        // 🚀 [사용자 파이어베이스 설정 영역]
+        // 🚀 [사용자 파이어베이스 설정 영역] - 클라우드 연동 시 여기에 설정값을 넣으세요.
         // =========================================================================
         const myFirebaseConfig = null; 
 
@@ -55,10 +54,10 @@
 
             return (
                 <div className="flex flex-col items-center w-full p-0 m-0">
-                    {title && <h4 className="text-lg font-black text-slate-800 mb-0">{title}</h4>}
+                    {title && <h4 className="text-xl font-black text-slate-800 mb-0">{title}</h4>}
                     
-                    {/* 그래프 크기를 380px까지 키워 시원하게 표시 */}
-                    <div className="relative w-full max-w-[380px] aspect-square flex items-center justify-center m-0 p-0 shrink-0">
+                    {/* 원형 그래프 크기 극대화 (450px) */}
+                    <div className="relative w-full max-w-[450px] aspect-square flex items-center justify-center m-0 p-0 shrink-0">
                         <svg viewBox="-1.5 -1.5 3.0 3.0" className="w-full h-full drop-shadow-2xl" style={{ transform: 'rotate(-90deg)' }}>
                             {data.map((slice, i) => {
                                 const slicePercent = slice.value / total;
@@ -88,11 +87,11 @@
                                     <g key={i}>
                                         <path d={pathData} fill={slice.color} stroke="#ffffff" strokeWidth="0.03" className="hover:opacity-90 transition-opacity" />
                                         {slicePercent > 0.08 ? ( 
-                                            <text x={textX} y={textY} fill="#ffffff" fontSize="0.22" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX}px ${textY}px`, pointerEvents: 'none' }}>
+                                            <text x={textX} y={textY} fill="#ffffff" fontSize="0.25" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX}px ${textY}px`, pointerEvents: 'none' }}>
                                                 {Math.round(slicePercent * 100)}%
                                             </text>
                                         ) : slicePercent > 0 ? (
-                                            <text x={textX_out} y={textY_out} fill="#1e293b" fontSize="0.22" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX_out}px ${textY_out}px`, pointerEvents: 'none' }}>
+                                            <text x={textX_out} y={textY_out} fill="#1e293b" fontSize="0.25" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX_out}px ${textY_out}px`, pointerEvents: 'none' }}>
                                                 {Math.round(slicePercent * 100)}%
                                             </text>
                                         ) : null}
@@ -101,13 +100,14 @@
                             })}
                             <circle cx="0" cy="0" r="0.55" fill="#ffffff" className="drop-shadow-sm" />
                             <text x="0" y="-0.12" fill="#475569" fontSize="0.18" fontWeight="800" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>총 문항수</text>
-                            <text x="0" y="0.18" fill="#1e1b4b" fontSize="0.32" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>{totalQuestions}</text>
+                            <text x="0" y="0.18" fill="#1e1b4b" fontSize="0.40" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>{totalQuestions}</text>
                         </svg>
                     </div>
                     
-                    <div className="grid grid-flow-col grid-rows-4 gap-x-12 gap-y-2 w-full px-4 mt-0">
+                    {/* 단원명 범례 150% 확대 및 2단 배치 */}
+                    <div className="grid grid-flow-col grid-rows-4 gap-x-12 gap-y-2.5 w-full px-6 mt-0">
                         {data.map((slice, i) => (
-                            <div key={i} className="flex items-center justify-between text-[15px] font-black text-slate-700">
+                            <div key={i} className="flex items-center justify-between text-[16px] font-black text-slate-700">
                                 <div className="flex items-center gap-2 truncate">
                                     <div className="w-4 h-4 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></div>
                                     <span className="truncate">{slice.name}</span>
@@ -196,14 +196,6 @@
                 localStorage.setItem('mathDashboardData', JSON.stringify(newData));
             };
 
-            const options = useMemo(() => ({
-                school: ['전체', ...new Set(data.map(d => d.school))],
-                period: ['전체', ...new Set(data.map(d => d.period))],
-                majorUnit: ['전체', ...new Set(data.map(d => d.majorUnit))],
-                difficulty: ['전체', ...DIFF_LEVELS],
-                type: ['전체', ...new Set(data.map(d => d.type))]
-            }), [data]);
-
             const filteredData = useMemo(() => {
                 return data.filter(item => {
                     const schoolMatch = filters.school.includes('전체') || filters.school.includes(item.school);
@@ -215,6 +207,14 @@
                 });
             }, [data, filters]);
 
+            const options = useMemo(() => ({
+                school: ['전체', ...new Set(data.map(d => d.school))],
+                period: ['전체', ...new Set(data.map(d => d.period))],
+                majorUnit: ['전체', ...new Set(data.map(d => d.majorUnit))],
+                difficulty: ['전체', ...DIFF_LEVELS],
+                type: ['전체', ...new Set(data.map(d => d.type))]
+            }), [data]);
+
             const activeSchools = useMemo(() => {
                 return filters.school.includes('전체') ? options.school.filter(s => s !== '전체') : filters.school;
             }, [filters.school, options.school]);
@@ -225,7 +225,6 @@
             const totalUnitsAnalyzed = new Set(filteredData.map(d=>d.majorUnit)).size;
 
             const unitDistribution = useMemo(() => {
-                // 🚀 핵심: 분석 기준을 엑셀 F열(majorUnit)로 강제 고정
                 const units = [...new Set(filteredData.map(d => d.majorUnit))];
                 return units.map(unit => {
                     const row = { unit };
@@ -244,22 +243,6 @@
                 });
             }, [filteredData, isComparing, activeSchools]);
 
-            const difficultyDistribution = useMemo(() => {
-                return DIFF_LEVELS.map(level => {
-                    const row = { level };
-                    if (isComparing) activeSchools.forEach(school => { row[school] = filteredData.filter(d => d.difficulty === level && d.school === school).length; });
-                    else row.count = filteredData.filter(d => d.difficulty === level).length;
-                    return row;
-                });
-            }, [filteredData, isComparing, activeSchools]);
-
-            const schoolTotals = useMemo(() => {
-                const totals = {};
-                if (isComparing) activeSchools.forEach(school => { totals[school] = filteredData.filter(d => d.school === school).length; });
-                else totals.single = filteredData.length;
-                return totals;
-            }, [filteredData, isComparing, activeSchools]);
-
             const uniqueExams = useMemo(() => {
                 const exams = data.map(d => `${d.school}|${d.period}`);
                 return [...new Set(exams)].map(e => {
@@ -268,33 +251,54 @@
                 });
             }, [data]);
 
-            // 🚀 엑셀 데이터 분석 로직 대폭 강화 (A~J 구조 강제)
+            // 🚀 파일 인식 안정성 및 열 매칭 (A~I열 체계)
             const processFile = (file) => {
                 if (!file) return;
+                // 라이브러리 체크
+                if (typeof XLSX === 'undefined') {
+                    alert("시스템 오류: 엑셀 라이브러리가 로드되지 않았습니다. 인터넷 연결을 확인하세요.");
+                    return;
+                }
+
                 const reader = new FileReader();
                 reader.onload = (evt) => {
                     try {
-                        const workbook = XLSX.read(evt.target.result, { type: 'binary' });
+                        const workbook = XLSX.read(new Uint8Array(evt.target.result), { type: 'array' });
                         const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
                         const rows = json.filter(row => row.length > 0);
-                        const newData = rows.slice(1).map((cols, idx) => ({
-                            id: Date.now() + idx + Math.random(),
-                            period: cols[0] ? String(cols[0]).trim() : '미상',
-                            school: cols[1] ? String(cols[1]).trim() : '미상',
-                            grade: cols[2] ? String(cols[2]).trim() : '-',
-                            subject: cols[3] ? String(cols[3]).trim() : '-',
-                            questionNum: cols[4] ? String(cols[4]).trim() : '-',
-                            majorUnit: cols[5] ? String(cols[5]).trim() : '단원미지정', // F열: 무조건 대단원
-                            minorUnit: cols[6] ? String(cols[6]).trim() : '-',
-                            // H열: 난이도에서 숫자만 추출 (보통4 -> 4)
-                            difficulty: cols[7] ? (String(cols[7]).match(/\d+/)?.[0] || '4') : '4', 
-                            source: cols[8] ? String(cols[8]).trim() : '',
-                            type: cols[9] ? String(cols[9]).trim() : '-' // J열: 무조건 유형
-                        }));
+                        
+                        if (rows.length < 2) {
+                            alert("엑셀 데이터가 부족하거나 형식이 맞지 않습니다.");
+                            return;
+                        }
+
+                        const newData = rows.slice(1).map((cols, idx) => {
+                            // H열(Index 7): 난이도에서 숫자만 추출
+                            const rawDiff = String(cols[7] || '4');
+                            const diffNum = rawDiff.match(/\d+/)?.[0] || '4';
+                            
+                            return {
+                                id: Date.now() + idx + Math.random(),
+                                period: cols[0] ? String(cols[0]).trim() : '미상',
+                                school: cols[1] ? String(cols[1]).trim() : '미상',
+                                grade: cols[2] ? String(cols[2]).trim() : '-',
+                                subject: cols[3] ? String(cols[3]).trim() : '-',
+                                questionNum: cols[4] ? String(cols[4]).trim() : '-',
+                                majorUnit: cols[5] ? String(cols[5]).trim() : '단원미지정', // F열(Index 5): 대단원
+                                minorUnit: cols[6] ? String(cols[6]).trim() : '-',        // G열(Index 6): 소단원
+                                difficulty: diffNum,                                      // H열(Index 7): 난이도
+                                source: cols[8] ? String(cols[8]).trim() : '',            // I열(Index 8): 출처
+                                type: '-' // 엑셀에서 문제유형 열을 삭제했으므로 기본값 처리
+                            };
+                        });
                         setPendingData({ filename: file.name, items: newData });
-                    } catch (error) { alert("엑셀 읽기 실패"); }
+                    } catch (error) { 
+                        console.error("File processing error:", error);
+                        alert("파일을 분석하는 중 오류가 발생했습니다. 엑셀 파일이 맞는지 확인해 주세요."); 
+                    }
                 };
-                reader.readAsBinaryString(file);
+                reader.onerror = () => alert("파일을 읽을 수 없습니다.");
+                reader.readAsArrayBuffer(file);
             };
 
             const confirmUpload = async () => {
@@ -307,29 +311,35 @@
             };
 
             const deleteSpecificExam = async (school, period) => {
-                if (!window.confirm("삭제하시겠습니까?")) return;
+                if (!window.confirm(`[${school} - ${period}] 데이터를 삭제하시겠습니까?`)) return;
                 const idsToDelete = data.filter(d => d.school === school && d.period === period).map(d => d.id);
                 if (isCloud && user) {
                     const { doc, deleteDoc, collection } = fbLibs.fs;
                     const dataRef = collection(firebaseDb, 'artifacts', appId, 'public', 'data', 'math_questions');
                     await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
-                } else saveLocalStorage(data.filter(d => !(d.school === school && d.period === period)));
+                } else {
+                    const newData = data.filter(d => !(d.school === school && d.period === period));
+                    saveLocalStorage(newData);
+                }
             };
 
             return (
                 <div className="min-h-screen bg-[#f8fafc] font-sans text-slate-800 relative"
-                     onDragEnter={() => setIsDragging(true)} onDragOver={(e)=>e.preventDefault()} onDrop={(e)=>{e.preventDefault(); setIsDragging(false); processFile(e.dataTransfer.files[0])}}>
+                     onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }} 
+                     onDragOver={(e)=>e.preventDefault()} 
+                     onDragLeave={(e) => { if(e.relatedTarget === null) setIsDragging(false); }}
+                     onDrop={(e)=>{e.preventDefault(); setIsDragging(false); processFile(e.dataTransfer.files[0])}}>
                     
-                    {isDragging && <div className="fixed inset-0 z-[200] bg-indigo-600/90 flex flex-col items-center justify-center text-white pointer-events-none animate-pulse"><Icon name="download-cloud" size={80} /><h2 className="text-3xl font-black mt-4">여기에 엑셀 파일을 놓으세요</h2></div>}
+                    {isDragging && <div className="fixed inset-0 z-[200] bg-indigo-600/90 flex flex-col items-center justify-center text-white pointer-events-none animate-pulse backdrop-blur-sm"><Icon name="download-cloud" size={80} /><h2 className="text-3xl font-black mt-4">여기에 엑셀 파일을 놓으세요</h2></div>}
 
                     {showManageModal && (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4">
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4 text-slate-900">
                             <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full">
                                 <div className="flex justify-between items-center mb-6 border-b pb-4"><h2 className="text-2xl font-black flex items-center gap-2"><Icon name="settings" className="text-indigo-500"/> 데이터 관리</h2><button onClick={() => setShowManageModal(false)}><Icon name="x-circle" size={28} className="text-slate-400"/></button></div>
                                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide">
                                     {uniqueExams.map((exam, idx) => (
                                         <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border">
-                                            <div><div className="text-indigo-600 font-black">{exam.school}</div><div className="text-slate-500 text-sm font-bold">{exam.period} ({exam.count}문항)</div></div>
+                                            <div><div className="text-indigo-600 font-black">{exam.school}</div><div className="text-slate-500 text-sm font-bold">{exam.period} ({exam.count}Qs)</div></div>
                                             <button onClick={() => deleteSpecificExam(exam.school, exam.period)} className="p-2 text-red-400 hover:bg-red-50 rounded-full"><Icon name="trash-2" size={20} /></button>
                                         </div>
                                     ))}
@@ -341,48 +351,51 @@
 
                     {pendingData && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
-                            <div className="bg-white rounded-2xl p-8 max-w-lg w-full text-center">
+                            <div className="bg-white rounded-2xl p-8 max-w-lg w-full text-center text-indigo-900">
                                 <Icon name="check-circle" size={48} className="text-emerald-500 mx-auto mb-4" />
                                 <h2 className="text-2xl font-black mb-2">데이터 인식 성공</h2>
-                                <p className="font-bold text-slate-500 mb-6">{pendingData.items.length}개의 문항을 추가하시겠습니까?</p>
-                                <div className="flex gap-3"><button onClick={confirmUpload} className="flex-1 bg-indigo-600 text-white font-black py-3 rounded-xl">추가하기</button><button onClick={() => setPendingData(null)} className="flex-1 bg-slate-100 font-black py-3 rounded-xl text-slate-500">취소</button></div>
+                                <p className="font-bold text-slate-500 mb-6">{pendingData.items.length}개의 문항을 분석 데이터에 추가할까요?</p>
+                                <div className="flex gap-3"><button onClick={confirmUpload} className="flex-1 bg-indigo-600 text-white font-black py-3 rounded-xl shadow-lg">대시보드 적용</button><button onClick={() => setPendingData(null)} className="flex-1 bg-slate-100 font-black py-3 rounded-xl text-slate-500">취소</button></div>
                             </div>
                         </div>
                     )}
 
                     {showGuide && (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4 text-slate-900">
                             <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-3xl w-full">
-                                <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-black text-slate-800">엑셀 작성 가이드</h2><button onClick={() => setShowGuide(false)} className="text-slate-400 hover:text-red-500"><Icon name="x-circle" size={28}/></button></div>
+                                <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-black text-slate-800">엑셀 작성 가이드 (9개열 버전)</h2><button onClick={() => setShowGuide(false)} className="text-slate-400 hover:text-red-500"><Icon name="x-circle" size={28}/></button></div>
                                 <div className="overflow-x-auto border rounded-xl mb-6 text-xs font-bold text-center">
                                     <table className="w-full text-left whitespace-nowrap">
-                                        <thead className="bg-slate-100"><tr><th className="p-2 border">A</th><th className="p-2 border">B</th><th className="p-2 border">C</th><th className="p-2 border">D</th><th className="p-2 border">E</th><th className="p-2 border">F (중요)</th><th className="p-2 border">G</th><th className="p-2 border">H (숫자)</th><th className="p-2 border">I</th><th className="p-2 border">J</th></tr></thead>
-                                        <tbody><tr><td className="p-2 border">시기</td><td className="p-2 border">학교명</td><td className="p-2 border">학년</td><td className="p-2 border">과목</td><td className="p-2 border">문항번호</td><td className="p-2 border text-indigo-600 bg-indigo-50">대단원</td><td className="p-2 border">소단원</td><td className="p-2 border text-red-600">난이도</td><td className="p-2 border">출처</td><td className="p-2 border text-emerald-600">문제유형</td></tr></tbody>
+                                        <thead className="bg-slate-100"><tr><th className="p-2 border text-center">A</th><th className="p-2 border text-center">B</th><th className="p-2 border text-center">C</th><th className="p-2 border text-center">D</th><th className="p-2 border text-center">E</th><th className="p-2 border text-center bg-indigo-50">F (중요)</th><th className="p-2 border text-center">G</th><th className="p-2 border text-center bg-rose-50">H (숫자)</th><th className="p-2 border text-center">I</th></tr></thead>
+                                        <tbody><tr><td className="p-2 border">시기</td><td className="p-2 border text-indigo-600">학교명</td><td className="p-2 border">학년</td><td className="p-2 border">과목</td><td className="p-2 border">번호</td><td className="p-2 border bg-indigo-50 text-indigo-600">대단원</td><td className="p-2 border">소단원</td><td className="p-2 border bg-rose-50 text-red-600">난이도</td><td className="p-2 border">출처</td></tr></tbody>
                                     </table>
                                 </div>
-                                <p className="text-xs text-slate-400 text-center mb-6 font-bold">* 반드시 F열에 대단원 이름을, J열에 유형(객관식 등)을 넣어주세요.</p>
+                                <p className="text-sm text-slate-500 mb-6 font-bold leading-relaxed text-center">
+                                    현재 분석 로직은 **A~I열(9개열)** 구조에 최적화되어 있습니다.<br/>
+                                    반드시 <span className="text-indigo-600 font-black">F열(6번째)에 대단원</span>을, <span className="text-red-600 font-black">H열(8번째)에 난이도</span>를 넣어주세요.
+                                </p>
                                 <button onClick={() => setShowGuide(false)} className="w-full bg-slate-800 text-white font-black py-3 rounded-xl">확인</button>
                             </div>
                         </div>
                     )}
 
-                    <div className="max-w-[1800px] mx-auto p-3 space-y-3">
+                    <div className="max-w-[1800px] mx-auto p-2 space-y-2">
                         <header className="flex justify-between items-center bg-white py-2 px-6 rounded-2xl premium-shadow border border-slate-100">
                             <div className="flex items-center gap-3">
-                                <h1 className="text-base md:text-lg font-black text-slate-800">Math Past Exam Analysis</h1>
+                                <h1 className="text-base font-black text-slate-800">Math Past Exam Analysis</h1>
                                 <span className="text-slate-400 text-[10px] font-bold border-l pl-3 ml-1 uppercase">{totalUnitsAnalyzed} Units | {totalQuestionsAnalyzed} Qs</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <button onClick={() => setShowGuide(true)} className="px-3 py-1.5 bg-slate-50 border rounded-lg text-[10px] font-bold text-slate-400 hover:bg-slate-100 transition-all">가이드</button>
+                                <button onClick={() => setShowGuide(true)} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold text-slate-400 hover:bg-slate-100 transition-all">가이드</button>
                                 <input type="file" accept=".xlsx" ref={fileInputRef} className="hidden" onChange={(e) => processFile(e.target.files[0])} />
-                                <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 bg-indigo-50 text-indigo-700 font-black rounded-lg text-[11px] hover:bg-indigo-100 transition-all">엑셀 업로드</button>
-                                <button onClick={() => setShowManageModal(true)} className="px-3 py-1.5 bg-rose-50 text-rose-600 font-black rounded-lg text-[11px] hover:bg-rose-100 transition-all">데이터 관리</button>
+                                <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 bg-indigo-50 text-indigo-700 font-black rounded-lg text-[10px] hover:bg-indigo-100 transition-all">엑셀 업로드</button>
+                                <button onClick={() => setShowManageModal(true)} className="px-3 py-1 bg-rose-50 text-rose-600 font-black rounded-lg text-[10px] hover:bg-rose-100 transition-all">데이터 관리</button>
                             </div>
                         </header>
 
-                        <section className="bg-white p-3 rounded-2xl premium-shadow border border-slate-100 flex flex-wrap gap-2 items-center">
+                        <section className="bg-white p-2 rounded-2xl premium-shadow border border-slate-100 flex flex-wrap gap-2 items-center">
                             <details className="relative z-50">
-                                <summary className="px-3 py-1.5 bg-slate-50 border rounded-lg text-[11px] font-black cursor-pointer list-none flex items-center gap-2">학교: {filters.school.includes('전체') ? '전체' : filters.school.length} <Icon name="chevron-down" size={10}/></summary>
+                                <summary className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-black cursor-pointer list-none flex items-center gap-2 text-slate-900 shadow-sm border-slate-200">학교: {filters.school.includes('전체') ? '전체' : filters.school.length} <Icon name="chevron-down" size={10}/></summary>
                                 <div className="absolute top-full left-0 w-48 bg-white border shadow-xl rounded-lg mt-1 p-2 z-50">
                                     {options.school.map(opt => (
                                         <label key={opt} className="flex items-center gap-2 p-1 hover:bg-indigo-50 rounded cursor-pointer"><input type="checkbox" checked={filters.school.includes(opt)} onChange={() => {
@@ -394,30 +407,30 @@
                                                 if(next.length === 0) next = ['전체'];
                                                 return {...prev, school: next};
                                             });
-                                        }} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[11px] font-black">{opt}</span></label>
+                                        }} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[10px] font-black">{opt}</span></label>
                                     ))}
                                 </div>
                             </details>
                             {['period', 'majorUnit', 'difficulty'].map((key) => (
-                                <select key={key} className="px-3 py-1.5 bg-slate-50 border rounded-lg text-[11px] font-black focus:outline-none" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value }))}>
-                                    <option value="전체">{key === 'period' ? '시험시기' : key === 'majorUnit' ? '대단원' : '난이도'}</option>
+                                <select key={key} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-black focus:outline-none text-slate-600 shadow-sm" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value }))}>
+                                    <option value="전체">{key === 'period' ? '시기' : key === 'majorUnit' ? '단원' : '난이도'}</option>
                                     {options[key].filter(o=>o!=='전체').map(opt => <option key={opt} value={opt}>{key === 'difficulty' ? DIFF_LABELS[opt] : opt}</option>)}
                                 </select>
                             ))}
                         </section>
 
-                        {/* 🚀 탭 디자인 압축: 폰트 크기 줄이고 상하 패딩 축소 */}
+                        {/* 🚀 탭 디자인 압축: 글씨 크기 줄이고 상하 여백 최소화 */}
                         <div className="flex gap-1 border-b border-slate-200">
                             {TABS.map(tab => (
-                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 text-[13px] md:text-[15px] font-black transition-all border-b-2 ${activeTab === tab.id ? 'text-indigo-600 border-indigo-600 bg-indigo-50/50 rounded-t-lg' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>{tab.label}</button>
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-1 text-[11px] md:text-[13px] font-black transition-all border-b-2 ${activeTab === tab.id ? 'text-indigo-600 border-indigo-600 bg-indigo-50/30 rounded-t-md' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>{tab.label}</button>
                             ))}
                         </div>
 
-                        <div className="bg-white rounded-3xl premium-shadow border border-slate-100 p-4 flex flex-col gap-4">
+                        <div className="bg-white rounded-3xl premium-shadow border border-slate-100 p-4 flex flex-col gap-2">
                             {activeTab === 'unit-analysis' && (
                                 <div className="flex flex-col lg:flex-row gap-4 w-full">
                                     <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center border-r border-slate-50">
-                                        <div className="text-[15px] font-black text-indigo-900 mb-1 flex items-center gap-2"><Icon name="pie-chart" size={18} className="text-indigo-400" /> 단원별 출제 비중</div>
+                                        <div className="text-[14px] font-black text-indigo-900 mb-0.5 flex items-center gap-2"><Icon name="pie-chart" size={18} className="text-indigo-400" /> 단원별 출제 비중</div>
                                         <div className="w-full flex flex-wrap justify-center items-start">
                                             {chartRenderList.map((key) => {
                                                 const pieData = unitDistribution.map((item, i) => ({ name: item.unit, value: isComparing ? (item[key]?.total || 0) : (item.single?.total || 0), color: UNIT_COLORS[i % UNIT_COLORS.length] })).filter(d => d.value > 0);
@@ -427,10 +440,10 @@
                                         </div>
                                     </div>
                                     <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center">
-                                        <div className="text-[15px] font-black text-emerald-900 mb-1 flex items-center gap-2"><Icon name="layers" size={18} className="text-emerald-400" /> 단원별 난이도 세부 구조</div>
-                                        <div className="flex relative w-full pt-4 h-[420px]">
-                                            <div className="absolute left-0 top-4 bottom-[5.5rem] w-8 flex flex-col justify-between items-end text-[10px] font-black text-slate-300 border-r border-slate-50 pr-2">{[7,6,5,4,3,2,1,0].map(n => <span key={n}>{n}</span>)}</div>
-                                            <div className="ml-10 flex-1 flex items-end justify-around gap-2 overflow-x-auto pb-[5.5rem] pr-2 scrollbar-hide">
+                                        <div className="text-[14px] font-black text-emerald-900 mb-0.5 flex items-center gap-2"><Icon name="layers" size={18} className="text-emerald-400" /> 단원별 난이도 세부 구조</div>
+                                        <div className="flex relative w-full pt-2 h-[440px]">
+                                            <div className="absolute left-0 top-4 bottom-[5.5rem] w-8 flex flex-col justify-between items-end text-[10px] font-black text-slate-300 border-r-2 border-slate-50 pr-2">{[7,6,5,4,3,2,1,0].map(n => <span key={n}>{n}</span>)}</div>
+                                            <div className="ml-10 flex-1 flex items-end justify-around gap-2 overflow-x-auto pb-[5.5rem] pr-2 scrollbar-hide text-slate-900">
                                                 {unitDistribution.map((item, idx) => (
                                                     <div key={idx} className="flex flex-col items-center h-full justify-end min-w-[50px] max-w-[80px] w-full relative">
                                                         <div className="w-10 h-full bg-slate-50 rounded-full inner-capsule flex flex-col justify-end p-1 overflow-hidden">
@@ -440,7 +453,7 @@
                                                                 return <div key={diff} className="w-full flex items-center justify-center border-b border-white/20 last:border-b-0 relative shadow-sm" style={{ height: `${count/7*100}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}><span className="text-[10px] text-white font-black">{count}</span></div>
                                                             })}
                                                         </div>
-                                                        <div className="absolute top-[100%] pt-2 left-1/2 -translate-x-1/2 w-[160%] flex flex-col items-center text-[13px] font-black text-slate-700 text-center leading-tight">
+                                                        <div className="absolute top-[100%] pt-2 left-1/2 -translate-x-1/2 w-[160%] flex flex-col items-center text-[15px] font-black text-slate-700 text-center leading-tight">
                                                             {item.unit.split(' ').map((w,i)=><React.Fragment key={i}>{w}<br/></React.Fragment>)}
                                                         </div>
                                                     </div>
@@ -450,26 +463,24 @@
                                     </div>
                                 </div>
                             )}
-                            {activeTab === 'level-count' && <div className="p-10 text-center font-bold text-slate-400">전체 출제 비율 탭 (준비 중)</div>}
-                            {activeTab === 'school-diff' && <div className="p-10 text-center font-bold text-slate-400">학교별 종합 난이도 탭 (준비 중)</div>}
                         </div>
 
                         <section className="bg-white rounded-3xl premium-shadow border border-slate-100 overflow-hidden">
-                            <div className="p-4 border-b border-slate-100 flex justify-between items-center"><h3 className="text-sm font-black text-slate-800">상세 문항 리스트</h3><span className="text-xs font-black text-slate-400">Total {filteredData.length}</span></div>
+                            <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50"><h3 className="text-[14px] font-black text-slate-800">상세 문항 리스트</h3><span className="text-[10px] font-black text-slate-400 font-bold">Total {filteredData.length}</span></div>
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left text-xs whitespace-nowrap">
+                                <table className="w-full text-left text-[11px] whitespace-nowrap">
                                     <thead className="bg-slate-50 font-black text-slate-400 uppercase tracking-tighter">
-                                        <tr><th className="px-6 py-3">번호</th><th className="px-6 py-3">문제유형</th><th className="px-6 py-3">대단원</th><th className="px-6 py-3">소단원</th><th className="px-6 py-3 text-center">난이도</th></tr>
+                                        <tr><th className="px-6 py-2">번호</th><th className="px-6 py-2">문제유형</th><th className="px-6 py-2">대단원</th><th className="px-6 py-2">소단원</th><th className="px-6 py-2 text-center">난이도</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50">
                                         {filteredData.map(row => (
                                             <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-2 font-black">{row.questionNum}번</td>
-                                                <td className="px-6 py-2 font-bold text-slate-400">{row.type}</td>
-                                                <td className="px-6 py-2 font-black text-slate-700">{row.majorUnit}</td>
-                                                <td className="px-6 py-2 font-bold text-slate-500">{row.minorUnit}</td>
-                                                <td className="px-6 py-2 text-center">
-                                                    <span className="px-2 py-0.5 rounded-full text-[11px] font-black shadow-sm" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] }}>{DIFF_LABELS[row.difficulty]}</span>
+                                                <td className="px-6 py-1.5 font-black text-slate-900">{row.questionNum}번</td>
+                                                <td className="px-6 py-1.5 font-bold text-slate-400">{row.type}</td>
+                                                <td className="px-6 py-1.5 font-black text-slate-700">{row.majorUnit}</td>
+                                                <td className="px-6 py-1.5 font-bold text-slate-500">{row.minorUnit}</td>
+                                                <td className="px-6 py-1.5 text-center">
+                                                    <span className="px-2 py-0.5 rounded-full text-[10px] font-black shadow-sm" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] }}>{DIFF_LABELS[row.difficulty]}</span>
                                                 </td>
                                             </tr>
                                         ))}
