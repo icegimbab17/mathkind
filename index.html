@@ -26,9 +26,6 @@
     <script type="text/babel" data-type="module">
         const { useState, useMemo, useRef, useEffect } = window.React;
 
-        // =========================================================================
-        // 🚀 [사용자 파이어베이스 설정 영역]
-        // =========================================================================
         const myFirebaseConfig = null; 
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -54,10 +51,7 @@
 
             return (
                 <div className="flex flex-col items-center w-full p-0 m-0">
-                    {/* 학교 이름 간격 조정 */}
                     {title && <h4 className="text-lg font-black text-slate-800 mb-1 relative z-10">{title}</h4>}
-                    
-                    {/* 원형 그래프 크기 축소 (480px -> 300px) */}
                     <div className="relative w-full max-w-[300px] aspect-square flex items-center justify-center m-0 p-0 shrink-0">
                         <svg viewBox="-1.3 -1.3 2.6 2.6" className="w-full h-full drop-shadow-xl" style={{ transform: 'rotate(-90deg)' }}>
                             {data.map((slice, i) => {
@@ -68,7 +62,7 @@
                                     return (
                                         <g key={i}>
                                             <circle cx="0" cy="0" r="1" fill={slice.color} />
-                                            <circle cx="0" cy="0" r="0.55" fill="#ffffff" />
+                                            <circle cx="0" cy="0" r="0.44" fill="#ffffff" />
                                         </g>
                                     )
                                 }
@@ -78,32 +72,29 @@
                                 const pathData = `M ${startX} ${startY} A 1 1 0 ${largeArcFlag} 1 ${endX} ${endY} L 0 0`;
                                 const midPercent = cumulativePercent - slicePercent / 2;
                                 const [labelX, labelY] = [Math.cos(2 * Math.PI * midPercent), Math.sin(2 * Math.PI * midPercent)];
-                                const textX = labelX * 0.78; const textY = labelY * 0.78;
+                                const textX = labelX * 0.72; const textY = labelY * 0.72;
                                 const textX_out = labelX * 1.15; const textY_out = labelY * 1.15;
 
                                 return (
                                     <g key={i}>
                                         <path d={pathData} fill={slice.color} stroke="#ffffff" strokeWidth="0.02" className="hover:opacity-90 transition-opacity" />
                                         {slicePercent > 0.08 ? ( 
-                                            <text x={textX} y={textY} fill="#ffffff" fontSize="0.11" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX}px ${textY}px`, pointerEvents: 'none' }}>
+                                            <text x={textX} y={textY} fill="#ffffff" fontSize="0.14" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX}px ${textY}px`, pointerEvents: 'none' }}>
                                                 {Math.round(slicePercent * 100)}%
                                             </text>
                                         ) : slicePercent > 0 ? (
-                                            <text x={textX_out} y={textY_out} fill="#1e293b" fontSize="0.11" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX_out}px ${textY_out}px`, pointerEvents: 'none' }}>
+                                            <text x={textX_out} y={textY_out} fill="#1e293b" fontSize="0.14" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX_out}px ${textY_out}px`, pointerEvents: 'none' }}>
                                                 {Math.round(slicePercent * 100)}%
                                             </text>
                                         ) : null}
                                     </g>
                                 );
                             })}
-                            <circle cx="0" cy="0" r="0.55" fill="#ffffff" className="drop-shadow-sm" />
-                            {/* 총 문항수 텍스트 크기 축소 */}
-                            <text x="0" y="-0.08" fill="#475569" fontSize="0.09" fontWeight="800" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>총 문항수</text>
-                            <text x="0" y="0.12" fill="#1e1b4b" fontSize="0.20" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>{totalQuestions}</text>
+                            <circle cx="0" cy="0" r="0.44" fill="#ffffff" className="drop-shadow-sm" />
+                            <text x="0" y="-0.12" fill="#475569" fontSize="0.18" fontWeight="800" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>총 문항수</text>
+                            <text x="0" y="0.14" fill="#1e1b4b" fontSize="0.20" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>{totalQuestions}</text>
                         </svg>
                     </div>
-                    
-                    {/* 단원명 겹침 방지를 위해 간격 및 폰트 크기 조정 */}
                     <div className="grid grid-flow-col grid-rows-4 gap-x-6 gap-y-1 w-full px-4 mt-2 relative z-20">
                         {data.map((slice, i) => (
                             <div key={i} className="flex items-center justify-between text-[13px] font-black text-slate-700">
@@ -126,7 +117,7 @@
 
         const TABS = [
             { id: 'unit-analysis', label: '단원별 상세 분석', icon: 'pie-chart' },
-            { id: 'level-count', label: '전체 출제 비율 (%)', icon: 'activity' },
+            { id: 'level-count', label: '전체 문항대비 난이도비율', icon: 'activity' },
             { id: 'school-diff', label: '학교별 종합 난이도', icon: 'school' },
         ];
 
@@ -388,8 +379,8 @@
                             <div className="flex items-center gap-2">
                                 <button onClick={() => setShowGuide(true)} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold text-slate-400 hover:bg-slate-100">가이드</button>
                                 <input type="file" accept=".xlsx" ref={fileInputRef} className="hidden" onChange={(e) => processFile(e.target.files[0])} />
-                                <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 bg-indigo-50 text-indigo-700 font-black rounded-lg text-[10px] hover:bg-indigo-100 transition-all">엑셀 업로드</button>
-                                <button onClick={() => setShowManageModal(true)} className="px-3 py-1 bg-rose-50 text-rose-600 font-black rounded-lg text-[10px] hover:bg-rose-100 transition-all">데이터 관리/삭제</button>
+                                <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 bg-indigo-50 text-indigo-700 font-black rounded-lg text-[10px] hover:bg-indigo-100">엑셀 업로드</button>
+                                <button onClick={() => setShowManageModal(true)} className="px-3 py-1 bg-rose-50 text-rose-600 font-black rounded-lg text-[10px] hover:bg-rose-100 transition-all shadow-sm">데이터 관리/삭제</button>
                             </div>
                         </header>
 
@@ -428,7 +419,6 @@
                         <div className="bg-white rounded-3xl premium-shadow border border-slate-100 p-2 flex flex-col gap-1">
                             {activeTab === 'unit-analysis' && (
                                 <div className="flex flex-col lg:flex-row gap-2 w-full">
-                                    {/* 원형 그래프 영역 (왼쪽) - 높이 고정 및 중앙 정렬 */}
                                     <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center border-r border-slate-50 min-h-[460px] justify-center">
                                         <div className="text-[14px] font-black text-indigo-900 mb-2 flex items-center gap-2 tracking-tight"><Icon name="pie-chart" size={18} className="text-indigo-400" /> 단원별 출제 비중</div>
                                         <div className="w-full flex flex-wrap justify-center items-start">
@@ -439,7 +429,6 @@
                                             })}
                                         </div>
                                     </div>
-                                    {/* 막대 그래프 영역 (오른쪽) - 높이 일치 */}
                                     <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center min-h-[460px] justify-center">
                                         <div className="text-[14px] font-black text-emerald-900 mb-2 flex items-center gap-2 tracking-tight"><Icon name="layers" size={18} className="text-emerald-400" /> 단원별 난이도 세부 구조</div>
                                         <div className="flex relative w-full pt-1 h-[400px]">
@@ -469,19 +458,22 @@
 
                             {activeTab === 'level-count' && (
                                 <div className="flex flex-col items-center w-full p-4 min-h-[460px] justify-center">
-                                    <div className="text-[16px] font-black text-indigo-900 mb-8 flex items-center gap-2"><Icon name="activity" size={20} className="text-emerald-500" /> 전체 문항 건수 대비 출제 비율 (%)</div>
-                                    <div className="flex-1 flex flex-col justify-end w-full md:w-[70%] mx-auto relative pt-8 pb-10 h-[300px]">
+                                    <div className="text-[16px] font-black text-indigo-900 mb-8 flex items-center gap-2"><Icon name="activity" size={20} className="text-emerald-500" /> [전체 문항대비 난이도비율]</div>
+                                    {/* 🚀 가로 너비 60%로 고정 및 중앙 정렬 */}
+                                    <div className="flex-1 flex flex-col justify-end w-full md:w-[60%] mx-auto relative pt-8 pb-10 h-[300px]">
                                         <div className="absolute bottom-10 left-0 right-0 h-4 bg-gradient-to-b from-slate-200 to-slate-300 rounded-full shadow-inner opacity-50"></div>
+                                        {/* 🚀 산 사이 간격 축소 (gap-0) */}
                                         <div className="grid grid-cols-8 gap-0 w-full h-full relative z-10">
                                             {difficultyDistribution.map((item, idx) => {
                                                 const count = isComparing ? (item[activeSchools[0]] || 0) : (item.count || 0);
                                                 const total = isComparing ? (schoolTotals[activeSchools[0]] || 1) : (schoolTotals.single || 1);
                                                 const actualPct = total > 0 ? (count / total) * 100 : 0;
+                                                // 🚀 시인성을 위해 최고 높이 기준을 50%로 설정하여 길게 표현
                                                 const visualPct = Math.min((actualPct / 50) * 100, 100); 
                                                 const pathData = "M 0 100 C 20 100, 35 0, 50 0 C 65 0, 80 100, 100 100 Z";
                                                 return (
                                                     <div key={idx} className="flex flex-col items-center justify-end h-full w-full">
-                                                        <div className="w-[85%] flex flex-col justify-end items-center relative transition-all duration-700" style={{ height: `${Math.max(visualPct, 1)}%` }}>
+                                                        <div className="w-[95%] flex flex-col justify-end items-center relative transition-all duration-700" style={{ height: `${Math.max(visualPct, 1)}%` }}>
                                                             {actualPct > 0 && <span className="absolute -top-6 text-[11px] font-black text-slate-600 bg-white px-1.5 rounded border shadow-sm">{actualPct.toFixed(1)}%</span>}
                                                             {actualPct > 0 && (
                                                                 <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full drop-shadow-lg">
@@ -490,7 +482,7 @@
                                                             )}
                                                             {actualPct > 1 && <span className="absolute bottom-[20%] text-white font-black text-sm drop-shadow-md">{count}</span>}
                                                         </div>
-                                                        <div className="mt-2 text-[11px] font-black text-slate-700 px-2 py-0.5 rounded" style={{ backgroundColor: DIFFICULTY_COLORS[item.level] }}>{DIFF_LABELS[item.level]}</div>
+                                                        <div className="mt-2 text-[10px] font-black text-slate-700 px-1 py-0.5 rounded text-center leading-tight h-8 flex items-center justify-center" style={{ backgroundColor: DIFFICULTY_COLORS[item.level] }}>{DIFF_LABELS[item.level]}</div>
                                                     </div>
                                                 )
                                             })}
@@ -502,22 +494,32 @@
                             {activeTab === 'school-diff' && (
                                 <div className="flex flex-col items-center w-full p-4 min-h-[460px] justify-center">
                                     <div className="text-[16px] font-black text-indigo-900 mb-8 flex items-center gap-2"><Icon name="school" size={20} className="text-indigo-500" /> 학교별 종합 난이도 분포</div>
-                                    <div className="flex gap-4 overflow-x-auto w-full pb-4 scrollbar-hide">
+                                    <div className="flex gap-4 overflow-x-auto w-full pb-4 scrollbar-hide justify-center">
                                         {schoolVerticalData.map((row) => (
-                                            <div key={row.school} className="min-w-[180px] bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm">
-                                                <div className="font-black text-[14px] text-slate-800 mb-0.5">{row.school}</div>
+                                            <div key={row.school} className="min-w-[180px] max-w-[220px] bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm">
+                                                <div className="font-black text-[14px] text-slate-800 mb-0.5 truncate w-full text-center">{row.school}</div>
                                                 <div className="text-[10px] text-slate-400 font-bold mb-4">({row.total}문항)</div>
-                                                <div className="flex-1 flex items-end justify-center gap-1 w-full h-[180px] border-b-2 border-slate-50 pb-1">
+                                                {/* 🚀 요청하신 직사각형 막대 그래프 형태로 변경 */}
+                                                <div className="flex-1 flex items-end justify-center gap-1.5 w-full h-[180px] border-b-2 border-slate-50 pb-1 px-2">
                                                     {DIFF_LEVELS.map(diff => {
                                                         const actualPct = row.total > 0 ? (row.diffCounts[diff] / row.total) * 100 : 0;
-                                                        const visualPct = Math.min(actualPct * 2, 100); 
+                                                        // 시각적으로 50%가 꽉 차게 보이도록 높이 조절
+                                                        const visualPct = Math.min((actualPct / 50) * 100, 100); 
                                                         return (
                                                             <div key={diff} className="flex-1 flex flex-col justify-end h-full relative group">
-                                                                <div className="w-full rounded-t-sm transition-all duration-500 hover:brightness-90" style={{ height: `${actualPct > 0 ? Math.max(visualPct, 2) : 0}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}></div>
-                                                                {actualPct > 5 && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[8px] font-black text-white">{actualPct.toFixed(0)}</span>}
+                                                                <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 text-[8px] font-black text-slate-500 opacity-0 group-hover:opacity-100 transition-opacity z-20 whitespace-nowrap bg-white px-1 rounded shadow-sm border">
+                                                                    {actualPct.toFixed(0)}%
+                                                                </span>
+                                                                <div className="w-full transition-all duration-500 hover:brightness-90 shadow-sm" style={{ height: `${actualPct > 0 ? Math.max(visualPct, 2) : 0}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}>
+                                                                </div>
+                                                                {actualPct > 10 && <span className="absolute bottom-0.5 left-1/2 -translate-x-1/2 text-[8px] font-black text-white leading-none">{actualPct.toFixed(0)}</span>}
                                                             </div>
                                                         )
                                                     })}
+                                                </div>
+                                                <div className="w-full flex justify-between mt-2 px-1">
+                                                    <span className="text-[8px] font-bold text-slate-400 uppercase">Easy</span>
+                                                    <span className="text-[8px] font-bold text-slate-400 uppercase">Hard</span>
                                                 </div>
                                             </div>
                                         ))}
