@@ -51,11 +51,9 @@
 
             return (
                 <div className="flex flex-col items-center w-full p-0 m-0">
-                    {/* 학교 이름과 그래프 사이 간격 최소화 */}
-                    {title && <h4 className="text-lg font-black text-slate-800 mb-[-10px] relative z-10">{title}</h4>}
-                    
+                    {title && <h4 className="text-lg font-black text-slate-800 mb-[-35px] relative z-10">{title}</h4>}
                     <div className="relative w-full max-w-[480px] aspect-square flex items-center justify-center m-0 p-0 shrink-0">
-                        <svg viewBox="-1.5 -1.5 3.0 3.0" className="w-full h-full drop-shadow-2xl" style={{ transform: 'rotate(-90deg)' }}>
+                        <svg viewBox="-1.3 -1.3 2.6 2.6" className="w-full h-full drop-shadow-2xl" style={{ transform: 'rotate(-90deg)' }}>
                             {data.map((slice, i) => {
                                 const slicePercent = slice.value / total;
                                 if (slicePercent === 0) return null;
@@ -74,22 +72,18 @@
                                 const pathData = `M ${startX} ${startY} A 1 1 0 ${largeArcFlag} 1 ${endX} ${endY} L 0 0`;
                                 const midPercent = cumulativePercent - slicePercent / 2;
                                 const [labelX, labelY] = [Math.cos(2 * Math.PI * midPercent), Math.sin(2 * Math.PI * midPercent)];
-                                const textX = labelX * 0.78; 
-                                const textY = labelY * 0.78;
-                                const textX_out = labelX * 1.30;
-                                const textY_out = labelY * 1.30;
+                                const textX = labelX * 0.78; const textY = labelY * 0.78;
+                                const textX_out = labelX * 1.15; const textY_out = labelY * 1.15;
 
                                 return (
                                     <g key={i}>
-                                        <path d={pathData} fill={slice.color} stroke="#ffffff" strokeWidth="0.03" className="hover:opacity-90 transition-opacity" />
+                                        <path d={pathData} fill={slice.color} stroke="#ffffff" strokeWidth="0.02" className="hover:opacity-90 transition-opacity" />
                                         {slicePercent > 0.08 ? ( 
-                                            // 퍼센트 글씨 크기 축소 (0.22 -> 0.14)
-                                            <text x={textX} y={textY} fill="#ffffff" fontSize="0.14" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX}px ${textY}px`, pointerEvents: 'none' }}>
+                                            <text x={textX} y={textY} fill="#ffffff" fontSize="0.12" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX}px ${textY}px`, pointerEvents: 'none' }}>
                                                 {Math.round(slicePercent * 100)}%
                                             </text>
                                         ) : slicePercent > 0 ? (
-                                            // 퍼센트 글씨 크기 축소 (0.22 -> 0.14)
-                                            <text x={textX_out} y={textY_out} fill="#1e293b" fontSize="0.14" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX_out}px ${textY_out}px`, pointerEvents: 'none' }}>
+                                            <text x={textX_out} y={textY_out} fill="#1e293b" fontSize="0.12" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)', transformOrigin: `${textX_out}px ${textY_out}px`, pointerEvents: 'none' }}>
                                                 {Math.round(slicePercent * 100)}%
                                             </text>
                                         ) : null}
@@ -97,17 +91,14 @@
                                 );
                             })}
                             <circle cx="0" cy="0" r="0.55" fill="#ffffff" className="drop-shadow-sm" />
-                            {/* 총 문항수 텍스트 크기 축소 (0.18 -> 0.11 / 0.40 -> 0.24) */}
-                            <text x="0" y="-0.08" fill="#475569" fontSize="0.11" fontWeight="800" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>총 문항수</text>
-                            <text x="0" y="0.12" fill="#1e1b4b" fontSize="0.24" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>{totalQuestions}</text>
+                            <text x="0" y="-0.08" fill="#475569" fontSize="0.10" fontWeight="800" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>총 문항수</text>
+                            <text x="0" y="0.12" fill="#1e1b4b" fontSize="0.22" fontWeight="900" textAnchor="middle" dominantBaseline="central" style={{ transform: 'rotate(90deg)' }}>{totalQuestions}</text>
                         </svg>
                     </div>
-                    
-                    {/* 그래프와 아래 단원명 사이 간격 확실히 줄임 (mt-[-30px]) */}
-                    <div className="grid grid-flow-col grid-rows-4 gap-x-12 gap-y-1 w-full px-6 mt-[-30px] relative z-10">
+                    <div className="grid grid-flow-col grid-rows-4 gap-x-8 gap-y-0.5 w-full px-6 mt-[-80px] relative z-20">
                         {data.map((slice, i) => (
-                            <div key={i} className="flex items-center justify-between text-[15px] font-black text-slate-700">
-                                <div className="flex items-center gap-2 truncate pr-2">
+                            <div key={i} className="flex items-center justify-between text-[14px] font-black text-slate-700">
+                                <div className="flex items-center gap-1.5 truncate pr-2">
                                     <div className="w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: slice.color }}></div>
                                     <span className="truncate">{slice.name}</span>
                                 </div>
@@ -243,6 +234,34 @@
                 });
             }, [filteredData, isComparing, activeSchools]);
 
+            // 🚀 전체 출제 비율 (%) 분석을 위한 데이터 계산
+            const difficultyDistribution = useMemo(() => {
+                return DIFF_LEVELS.map(level => {
+                    const row = { level };
+                    if (isComparing) activeSchools.forEach(school => { row[school] = filteredData.filter(d => d.difficulty === level && d.school === school).length; });
+                    else row.count = filteredData.filter(d => d.difficulty === level).length;
+                    return row;
+                });
+            }, [filteredData, isComparing, activeSchools]);
+
+            // 🚀 학교별 종합 난이도 분석을 위한 데이터 계산
+            const schoolVerticalData = useMemo(() => {
+                return activeSchools.map(school => {
+                    const sData = data.filter(d => d.school === school);
+                    const total = sData.length;
+                    const diffCounts = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0 };
+                    sData.forEach(d => { if (diffCounts[d.difficulty] !== undefined) diffCounts[d.difficulty]++; });
+                    return { school, total, diffCounts };
+                });
+            }, [activeSchools, data]);
+
+            const schoolTotals = useMemo(() => {
+                const totals = {};
+                if (isComparing) activeSchools.forEach(school => { totals[school] = filteredData.filter(d => d.school === school).length; });
+                else totals.single = filteredData.length;
+                return totals;
+            }, [filteredData, isComparing, activeSchools]);
+
             const uniqueExams = useMemo(() => {
                 const exams = data.map(d => `${d.school}|${d.period}`);
                 return [...new Set(exams)].map(e => {
@@ -293,7 +312,7 @@
             };
 
             const deleteSpecificExam = async (school, period) => {
-                if (!window.confirm("삭제하시겠습니까?")) return;
+                if (!window.confirm(`[${school} - ${period}] 데이터를 삭제하시겠습니까?`)) return;
                 const idsToDelete = data.filter(d => d.school === school && d.period === period).map(d => d.id);
                 if (isCloud && user) {
                     const { doc, deleteDoc, collection } = fbLibs.fs;
@@ -343,11 +362,11 @@
                     )}
 
                     {pendingData && (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4">
-                            <div className="bg-white rounded-2xl p-8 max-w-lg w-full text-center text-indigo-900 shadow-2xl">
+                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4 text-slate-900">
+                            <div className="bg-white rounded-2xl p-8 max-w-lg w-full text-center">
                                 <Icon name="check-circle" size={56} className="text-emerald-500 mx-auto mb-4" />
-                                <h2 className="text-2xl font-black mb-2 tracking-tight">분석할 데이터 준비 완료</h2>
-                                <p className="font-bold text-slate-500 mb-8 leading-relaxed">선택한 파일에서 <span className="text-indigo-600 underline">{pendingData.items.length}개</span>의 문항을 성공적으로 읽어왔습니다. 대시보드에 적용할까요?</p>
+                                <h2 className="text-2xl font-black mb-2">데이터 인식 성공</h2>
+                                <p className="font-bold text-slate-500 mb-8 leading-relaxed">선택한 파일에서 <span className="text-indigo-600 underline">{pendingData.items.length}개</span>의 문항을 읽어왔습니다.</p>
                                 <div className="flex gap-3"><button onClick={confirmUpload} className="flex-1 bg-indigo-600 text-white font-black py-3 rounded-xl shadow-lg hover:bg-indigo-700 transition-colors">예, 적용합니다</button><button onClick={() => setPendingData(null)} className="flex-1 bg-slate-100 font-black py-3 rounded-xl text-slate-500 hover:bg-slate-200 transition-colors">취소</button></div>
                             </div>
                         </div>
@@ -369,7 +388,7 @@
 
                         <section className="bg-white p-2 rounded-2xl premium-shadow border border-slate-100 flex flex-wrap gap-2 items-center">
                             <details className="relative z-50">
-                                <summary className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-black cursor-pointer list-none flex items-center gap-2 text-slate-900 shadow-sm border-slate-200">학교: {filters.school.includes('전체') ? '전체' : filters.school.length} <Icon name="chevron-down" size={10}/></summary>
+                                <summary className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-black cursor-pointer list-none flex items-center gap-2 text-slate-600 text-slate-900 shadow-sm">학교: {filters.school.includes('전체') ? '전체' : filters.school.length} <Icon name="chevron-down" size={10}/></summary>
                                 <div className="absolute top-full left-0 w-48 bg-white border shadow-xl rounded-lg mt-1 p-2 z-50">
                                     {options.school.map(opt => (
                                         <label key={opt} className="flex items-center gap-2 p-1 hover:bg-indigo-50 rounded cursor-pointer"><input type="checkbox" checked={filters.school.includes(opt)} onChange={() => {
@@ -395,15 +414,16 @@
 
                         <div className="flex gap-1 border-b border-slate-200">
                             {TABS.map(tab => (
-                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-1 text-[11px] md:text-[13px] font-black transition-all border-b-2 ${activeTab === tab.id ? 'text-indigo-600 border-indigo-600 bg-indigo-50/30 rounded-t-md shadow-sm' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>{tab.label}</button>
+                                <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-1 text-[11px] md:text-[12px] font-black transition-all border-b-2 ${activeTab === tab.id ? 'text-indigo-600 border-indigo-600 bg-indigo-50/30 rounded-t-md shadow-sm' : 'text-slate-400 border-transparent hover:text-slate-600'}`}>{tab.label}</button>
                             ))}
                         </div>
 
-                        <div className="bg-white rounded-3xl premium-shadow border border-slate-100 p-4 flex flex-col gap-2">
+                        <div className="bg-white rounded-3xl premium-shadow border border-slate-100 p-2 flex flex-col gap-1">
+                            {/* 1. 단원별 상세 분석 */}
                             {activeTab === 'unit-analysis' && (
-                                <div className="flex flex-col lg:flex-row gap-4 w-full">
+                                <div className="flex flex-col lg:flex-row gap-2 w-full">
                                     <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center border-r border-slate-50">
-                                        <div className="text-[14px] font-black text-indigo-900 mb-0.5 flex items-center gap-2 font-black tracking-tight"><Icon name="pie-chart" size={18} className="text-indigo-400" /> 단원별 출제 비중</div>
+                                        <div className="text-[14px] font-black text-indigo-900 mb-0.5 flex items-center gap-2 tracking-tight"><Icon name="pie-chart" size={18} className="text-indigo-400" /> 단원별 출제 비중</div>
                                         <div className="w-full flex flex-wrap justify-center items-start">
                                             {chartRenderList.map((key) => {
                                                 const pieData = unitDistribution.map((item, i) => ({ name: item.unit, value: isComparing ? (item[key]?.total || 0) : (item.single?.total || 0), color: UNIT_COLORS[i % UNIT_COLORS.length] })).filter(d => d.value > 0);
@@ -413,9 +433,9 @@
                                         </div>
                                     </div>
                                     <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center">
-                                        <div className="text-[14px] font-black text-emerald-900 mb-0.5 flex items-center gap-2 font-black tracking-tight"><Icon name="layers" size={18} className="text-emerald-400" /> 단원별 난이도 세부 구조</div>
-                                        <div className="flex relative w-full pt-2 h-[440px]">
-                                            <div className="absolute left-0 top-4 bottom-[5.5rem] w-8 flex flex-col justify-between items-end text-[10px] font-black text-slate-300 border-r-2 border-slate-50 pr-2 font-black font-black font-black font-black font-black font-black font-black">{[7,6,5,4,3,2,1,0].map(n => <span key={n}>{n}</span>)}</div>
+                                        <div className="text-[14px] font-black text-emerald-900 mb-0.5 flex items-center gap-2 tracking-tight"><Icon name="layers" size={18} className="text-emerald-400" /> 단원별 난이도 세부 구조</div>
+                                        <div className="flex relative w-full pt-1 h-[380px]">
+                                            <div className="absolute left-0 top-1 bottom-[5.5rem] w-8 flex flex-col justify-between items-end text-[10px] font-black text-slate-300 border-r-2 border-slate-50 pr-2">{[7,6,5,4,3,2,1,0].map(n => <span key={n}>{n}</span>)}</div>
                                             <div className="ml-10 flex-1 flex items-end justify-around gap-2 overflow-x-auto pb-[5.5rem] pr-2 scrollbar-hide text-slate-900">
                                                 {unitDistribution.map((item, idx) => (
                                                     <div key={idx} className="flex flex-col items-center h-full justify-end min-w-[50px] max-w-[80px] w-full relative">
@@ -428,7 +448,7 @@
                                                             })}
                                                             </div>
                                                         </div>
-                                                        <div className="absolute top-[100%] pt-2 left-1/2 -translate-x-1/2 w-[160%] flex flex-col items-center text-[15px] font-black text-slate-700 text-center leading-tight tracking-tight">
+                                                        <div className="absolute top-[100%] pt-2 left-1/2 -translate-x-1/2 w-[160%] flex flex-col items-center text-[13px] font-black text-slate-700 text-center leading-tight tracking-tight">
                                                             {item.unit.split(' ').map((w,i)=><React.Fragment key={i}>{w}<br/></React.Fragment>)}
                                                         </div>
                                                     </div>
@@ -438,25 +458,88 @@
                                     </div>
                                 </div>
                             )}
+
+                            {/* 2. 전체 출제 비율 (%) - 산 모양 그래프 복구 */}
+                            {activeTab === 'level-count' && (
+                                <div className="flex flex-col items-center w-full p-4 min-h-[400px]">
+                                    <div className="text-[16px] font-black text-indigo-900 mb-8 flex items-center gap-2"><Icon name="activity" size={20} className="text-emerald-500" /> 전체 문항 건수 대비 출제 비율 (%)</div>
+                                    <div className="flex-1 flex flex-col justify-end w-full md:w-[70%] mx-auto relative pt-8 pb-10 h-[300px]">
+                                        <div className="absolute bottom-10 left-0 right-0 h-4 bg-gradient-to-b from-slate-200 to-slate-300 rounded-full shadow-inner opacity-50"></div>
+                                        <div className="grid grid-cols-8 gap-0 w-full h-full relative z-10">
+                                            {difficultyDistribution.map((item, idx) => {
+                                                const count = isComparing ? (item[activeSchools[0]] || 0) : (item.count || 0);
+                                                const total = isComparing ? (schoolTotals[activeSchools[0]] || 1) : (schoolTotals.single || 1);
+                                                const actualPct = total > 0 ? (count / total) * 100 : 0;
+                                                const visualPct = Math.min((actualPct / 50) * 100, 100); 
+                                                const pathData = "M 0 100 C 20 100, 35 0, 50 0 C 65 0, 80 100, 100 100 Z";
+                                                return (
+                                                    <div key={idx} className="flex flex-col items-center justify-end h-full w-full">
+                                                        <div className="w-[85%] flex flex-col justify-end items-center relative transition-all duration-700" style={{ height: `${Math.max(visualPct, 1)}%` }}>
+                                                            {actualPct > 0 && <span className="absolute -top-6 text-[11px] font-black text-slate-600 bg-white px-1.5 rounded border shadow-sm">{actualPct.toFixed(1)}%</span>}
+                                                            {actualPct > 0 && (
+                                                                <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full drop-shadow-lg">
+                                                                    <path d={pathData} fill={DIFFICULTY_COLORS[item.level]} fillOpacity="0.85" />
+                                                                </svg>
+                                                            )}
+                                                            {actualPct > 1 && <span className="absolute bottom-[20%] text-white font-black text-sm drop-shadow-md">{count}</span>}
+                                                        </div>
+                                                        <div className="mt-2 text-[11px] font-black text-slate-700 px-2 py-0.5 rounded" style={{ backgroundColor: DIFFICULTY_COLORS[item.level] }}>{DIFF_LABELS[item.level]}</div>
+                                                    </div>
+                                                )
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 3. 학교별 종합 난이도 복구 */}
+                            {activeTab === 'school-diff' && (
+                                <div className="flex flex-col items-center w-full p-4 min-h-[400px]">
+                                    <div className="text-[16px] font-black text-indigo-900 mb-8 flex items-center gap-2"><Icon name="school" size={20} className="text-indigo-500" /> 학교별 종합 난이도 분포</div>
+                                    <div className="flex gap-4 overflow-x-auto w-full pb-4 scrollbar-hide">
+                                        {schoolVerticalData.map((row) => (
+                                            <div key={row.school} className="min-w-[180px] bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm">
+                                                <div className="font-black text-[14px] text-slate-800 mb-0.5">{row.school}</div>
+                                                <div className="text-[10px] text-slate-400 font-bold mb-4">({row.total}문항)</div>
+                                                <div className="flex-1 flex items-end justify-center gap-1 w-full h-[180px] border-b-2 border-slate-50 pb-1">
+                                                    {DIFF_LEVELS.map(diff => {
+                                                        const actualPct = row.total > 0 ? (row.diffCounts[diff] / row.total) * 100 : 0;
+                                                        const visualPct = Math.min(actualPct * 2, 100); 
+                                                        return (
+                                                            <div key={diff} className="flex-1 flex flex-col justify-end h-full relative group">
+                                                                <div className="w-full rounded-t-sm transition-all duration-500 hover:brightness-90" style={{ height: `${actualPct > 0 ? Math.max(visualPct, 2) : 0}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}></div>
+                                                                {actualPct > 5 && <span className="absolute bottom-1 left-1/2 -translate-x-1/2 text-[8px] font-black text-white">{actualPct.toFixed(0)}</span>}
+                                                            </div>
+                                                        )
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
-                        <section className="bg-white rounded-3xl premium-shadow border border-slate-100 overflow-hidden">
-                            <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50"><h3 className="text-[14px] font-black text-slate-800">상세 문항 리스트</h3><span className="text-[10px] font-black text-slate-400 font-bold font-black">Total {filteredData.length}</span></div>
+                        <section className="bg-white rounded-3xl premium-shadow border border-slate-100 overflow-hidden mt-1">
+                            <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                                <h3 className="text-[14px] font-black text-slate-800 flex items-center gap-2"><Icon name="list" size={18} className="text-slate-400"/> 상세 문항 리스트</h3>
+                                <span className="text-[10px] font-black text-slate-400 font-bold">Total {filteredData.length}</span>
+                            </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-[11px] whitespace-nowrap">
                                     <thead className="bg-slate-50 font-black text-slate-400 uppercase tracking-tighter shadow-sm">
-                                        <tr><th className="px-6 py-2">번호</th><th className="px-6 py-2">문제유형</th><th className="px-6 py-2">대단원</th><th className="px-6 py-2">소단원</th><th className="px-6 py-2 text-center">난이도</th></tr>
+                                        <tr><th className="px-6 py-2">번호</th><th className="px-6 py-2">대단원</th><th className="px-6 py-2">소단원</th><th className="px-6 py-2 text-center">난이도</th><th className="px-6 py-2">출처</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50">
                                         {filteredData.map(row => (
                                             <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                                                <td className="px-6 py-1.5 font-black text-slate-900 font-black">{row.questionNum}번</td>
-                                                <td className="px-6 py-1.5 font-bold text-slate-400 font-black">{row.type}</td>
-                                                <td className="px-6 py-1.5 font-black text-slate-700 font-black font-black">{row.majorUnit}</td>
-                                                <td className="px-6 py-1.5 font-bold text-slate-500 font-black">{row.minorUnit}</td>
-                                                <td className="px-6 py-1.5 text-center font-black">
+                                                <td className="px-6 py-1.5 font-black text-slate-900">{row.questionNum}번</td>
+                                                <td className="px-6 py-1.5 font-black text-slate-700">{row.majorUnit}</td>
+                                                <td className="px-6 py-1.5 font-bold text-slate-500">{row.minorUnit}</td>
+                                                <td className="px-6 py-1.5 text-center">
                                                     <span className="px-2 py-0.5 rounded-full text-[10px] font-black shadow-sm" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] }}>{DIFF_LABELS[row.difficulty]}</span>
                                                 </td>
+                                                <td className="px-6 py-1.5 text-slate-400 text-[10px] italic truncate max-w-[200px]">{row.source}</td>
                                             </tr>
                                         ))}
                                     </tbody>
