@@ -32,7 +32,15 @@
     <script type="text/babel" data-type="module">
         const { useState, useMemo, useRef, useEffect } = window.React;
 
-        const myFirebaseConfig = null; 
+        // 🚀 [완료] 선생님의 Firebase 키값이 완벽하게 적용되어 있습니다.
+        const myFirebaseConfig = {
+            apiKey: "AIzaSyAfM4dIVjANychGT2798HTEQvwSxXRRWyQ",
+            authDomain: "mathkind-142d4.firebaseapp.com",
+            projectId: "mathkind-142d4",
+            storageBucket: "mathkind-142d4.firebasestorage.app",
+            messagingSenderId: "919722012853",
+            appId: "1:919722012853:web:1d35e60b64263563f68efc"
+        };
 
         const Icon = ({ name, size = 24, className = "" }) => {
             const iconRef = useRef(null);
@@ -128,7 +136,17 @@
         ];
 
         let firebaseApp, firebaseAuth, firebaseDb, fbLibs;
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'math-dashboard-app';
+        const isCanvasEnv = typeof __app_id !== 'undefined';
+        const appId = isCanvasEnv ? __app_id : 'math-dashboard-app';
+        
+        // 🚀 Firestore 저장소 경로 설정 (깃허브 vs 내부환경 구분)
+        const getCollectionRef = (db) => {
+            if (isCanvasEnv && !myFirebaseConfig) {
+                return fbLibs.fs.collection(db, 'artifacts', appId, 'public', 'data', 'math_questions');
+            } else {
+                return fbLibs.fs.collection(db, 'math_questions'); // 깃허브 등 외부 호스팅용 기본 경로
+            }
+        };
 
         function App() {
             const [data, setData] = useState([]);
@@ -174,17 +192,27 @@
                                 import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js')
                             ]);
                             firebaseApp = appLib.initializeApp(finalConfig);
-                            firebaseAuth = authLib.getAuth(firebaseApp);
                             firebaseDb = fsLib.getFirestore(firebaseApp);
-                            fbLibs = { app: appLib, auth: authLib, fs: fsLib };
+                            fbLibs = { app: appLib, fs: fsLib, auth: authLib };
                             setIsCloud(true);
-                            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                                await authLib.signInWithCustomToken(firebaseAuth, __initial_auth_token);
-                            } else {
-                                await authLib.signInAnonymously(firebaseAuth);
+                            
+                            // Auth 로그인 시도
+                            try {
+                                firebaseAuth = authLib.getAuth(firebaseApp);
+                                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token && !myFirebaseConfig) {
+                                    await authLib.signInWithCustomToken(firebaseAuth, __initial_auth_token);
+                                } else {
+                                    await authLib.signInAnonymously(firebaseAuth);
+                                }
+                                authLib.onAuthStateChanged(firebaseAuth, (u) => { setUser(u || {uid:'anonymous'}); });
+                            } catch(authErr) {
+                                console.warn("익명 로그인 실패. Firestore 보안규칙이 'public'이면 정상 작동합니다.");
+                                setUser({uid:'anonymous'});
                             }
-                            authLib.onAuthStateChanged(firebaseAuth, (u) => { setUser(u); });
-                        } catch (e) { loadLocalData(); }
+                        } catch (e) { 
+                            console.error("Firebase 로드 실패:", e);
+                            loadLocalData(); 
+                        }
                     } else { loadLocalData(); }
                 };
                 initFirebase();
@@ -192,11 +220,13 @@
 
             useEffect(() => {
                 if (isCloud && user) {
-                    const { collection, onSnapshot } = fbLibs.fs;
-                    const dataRef = collection(firebaseDb, 'artifacts', appId, 'public', 'data', 'math_questions');
+                    const { onSnapshot } = fbLibs.fs;
+                    const dataRef = getCollectionRef(firebaseDb);
                     const unsubscribe = onSnapshot(dataRef, (snapshot) => {
                         const fetchedData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                         setData(fetchedData);
+                    }, (error) => {
+                        console.error("Firestore 읽기 권한이 없습니다. Firebase 규칙을 확인해주세요.", error);
                     });
                     return () => unsubscribe();
                 }
@@ -342,8 +372,8 @@
 
             const confirmUpload = async () => {
                 if (isCloud && user) {
-                    const { collection, doc, setDoc } = fbLibs.fs;
-                    const dataRef = collection(firebaseDb, 'artifacts', appId, 'public', 'data', 'math_questions');
+                    const { doc, setDoc } = fbLibs.fs;
+                    const dataRef = getCollectionRef(firebaseDb);
                     await Promise.all(pendingData.items.map(item => setDoc(doc(dataRef, String(item.id)), item)));
                 } else {
                     saveLocalData([...data, ...pendingData.items]);
@@ -355,8 +385,8 @@
                 if (!window.confirm(`[${school} - ${period}] 데이터를 삭제하시겠습니까?`)) return;
                 const idsToDelete = data.filter(d => d.school === school && d.period === period).map(d => d.id);
                 if (isCloud && user) {
-                    const { doc, deleteDoc, collection } = fbLibs.fs;
-                    const dataRef = collection(firebaseDb, 'artifacts', appId, 'public', 'data', 'math_questions');
+                    const { doc, deleteDoc } = fbLibs.fs;
+                    const dataRef = getCollectionRef(firebaseDb);
                     await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
                 } else {
                     saveLocalData(data.filter(d => !(d.school === school && d.period === period)));
@@ -366,8 +396,9 @@
             const handleClearData = async () => {
                 if(window.confirm("모든 데이터를 초기화하시겠습니까?")) {
                     if (isCloud && user) {
-                        const { collection, getDocs, deleteDoc } = fbLibs.fs;
-                        const snap = await getDocs(collection(firebaseDb, 'artifacts', appId, 'public', 'data', 'math_questions'));
+                        const { getDocs, deleteDoc } = fbLibs.fs;
+                        const dataRef = getCollectionRef(firebaseDb);
+                        const snap = await getDocs(dataRef);
                         await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
                     } else {
                         saveLocalData([]);
@@ -483,7 +514,7 @@
                                                 </div>
                                             </div>
                                             <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center min-h-[460px] justify-center text-slate-900 font-black font-black">
-                                                <div className="text-[14px] text-emerald-900 mb-2 flex items-center gap-2 tracking-tight font-black font-black font-black font-black"><Icon name="layers" size={18} className="text-emerald-400" /> 단원별 난이도 세부 구조</div>
+                                                <div className="text-[14px] text-emerald-900 mb-2 flex items-center gap-2 tracking-tight font-black font-black font-black font-black"><Icon name="layers" size={18} className="text-emerald-400" /> 단원별 난이 세부 구조</div>
                                                 <div className="flex relative w-full pt-1 h-[400px] font-black">
                                                     <div className="absolute left-0 top-1 bottom-[5.5rem] w-8 flex flex-col justify-between items-end text-[10px] font-black text-slate-300 border-r-2 border-slate-50 pr-2 font-black">{[7,6,5,4,3,2,1,0].map(n => <span key={n}>{n}</span>)}</div>
                                                     <div className="ml-10 flex-1 flex items-end justify-around gap-2 overflow-x-auto pb-[5.5rem] pr-2 scrollbar-hide font-black">
@@ -594,10 +625,10 @@
                                                             <span className="text-[13px] font-black text-black">({row.total}문항)</span>
                                                         </div>
                                                         
-                                                        {/* 🚀 학교별 난이도 막대그래프 컨테이너 (절대위치 지정으로 높이 보장) */}
+                                                        {/* 🚀 학교별 난이도 막대그래프 컨테이너 */}
                                                         <div className="relative w-full h-[180px] border-b-2 border-slate-50 pb-0 px-1 font-black flex items-end justify-center gap-1.5 mt-2">
                                                             {showHighDiff && highDiffPct > 0 && (
-                                                                <div className="absolute top-0 right-1 -translate-y-1/2 z-30 pointer-events-none">
+                                                                <div className="absolute top-1/2 right-1 -translate-y-1/2 z-30 pointer-events-none">
                                                                     <span className="text-[14px] font-black tracking-tighter text-orange-700 bg-orange-50/90 px-2 py-0.5 rounded shadow-sm border border-orange-300 whitespace-nowrap">
                                                                         고난도 {highDiffPct.toFixed(1).replace('.0', '')}%
                                                                     </span>
