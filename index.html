@@ -191,7 +191,6 @@
                                 import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js')
                             ]);
                             
-                            // 🚀 Firebase 중복 초기화 방지 (미리보기 화면 먹통 완벽 해결)
                             const apps = appLib.getApps();
                             firebaseApp = apps.length === 0 ? appLib.initializeApp(finalConfig) : apps[0];
                             firebaseDb = fsLib.getFirestore(firebaseApp);
@@ -242,7 +241,6 @@
                 });
             }, [data, filters]);
 
-            // 🚀 필터링 옵션에서 빈칸이나 '학교명' 원천 제외
             const options = useMemo(() => ({
                 school: [...new Set(data.map(d => d.school))].filter(s => s && s !== '학교명' && s !== '학교' && s !== '미상'),
                 period: ['전체', ...new Set(data.map(d => d.period))],
@@ -307,7 +305,6 @@
                 });
             }, [filteredData, isComparing, activeSchools]);
 
-            // 🚀 데이터 소스를 filteredData로 적용하여 학기/단원 필터 완벽 적용
             const schoolVerticalData = useMemo(() => {
                 return activeSchools.filter(s => s && s !== '학교명' && s !== '학교').map(school => {
                     const sData = filteredData.filter(d => d.school === school);
@@ -332,7 +329,6 @@
                 return totals;
             }, [filteredData, isComparing, activeSchools]);
 
-            // 🚀 모달 리스트 등에서도 학교명 데이터 완벽 숨김
             const uniqueExams = useMemo(() => {
                 const exams = data.map(d => `${d.school}|${d.period}`);
                 return [...new Set(exams)].map(e => {
@@ -358,7 +354,6 @@
                             minor: findIdx(['소단원']), diff: findIdx(['난이도'])
                         };
                         
-                        // 🚀 엑셀 파싱 시 '학교명' 데이터 유입 자체를 강력 차단
                         const newData = json.slice(headerIdx + 1).filter(row => {
                             if (!row || row.length === 0) return false;
                             const sName = String(row[idxMap.school] || '').trim();
@@ -382,12 +377,30 @@
             };
 
             const confirmUpload = async () => {
+                const uploadedExams = [...new Set(pendingData.items.map(item => `${item.school}|${item.period}`))];
+                const existingExams = new Set(data.map(d => `${d.school}|${d.period}`));
+                const overlaps = uploadedExams.filter(exam => existingExams.has(exam));
+
+                if (overlaps.length > 0) {
+                    if (!window.confirm("동일한 학교 및 시기의 데이터가 이미 존재합니다.\n중복을 방지하기 위해 기존 데이터를 지우고 새 데이터로 덮어쓰시겠습니까?")) {
+                        setPendingData(null);
+                        return; 
+                    }
+                }
+
                 if (isCloud && user) {
-                    const { doc, setDoc } = fbLibs.fs;
+                    const { doc, setDoc, deleteDoc } = fbLibs.fs;
                     const dataRef = getCollectionRef(firebaseDb);
+
+                    if (overlaps.length > 0) {
+                        const idsToDelete = data.filter(d => overlaps.includes(`${d.school}|${d.period}`)).map(d => d.id);
+                        await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
+                    }
+
                     await Promise.all(pendingData.items.map(item => setDoc(doc(dataRef, String(item.id)), item)));
                 } else {
-                    saveLocalData([...data, ...pendingData.items]);
+                    const filteredExistingData = data.filter(d => !overlaps.includes(`${d.school}|${d.period}`));
+                    saveLocalData([...filteredExistingData, ...pendingData.items]);
                 }
                 setPendingData(null);
             };
@@ -553,7 +566,15 @@
 
                                     {activeTab === 'level-count' && (
                                         <div className="flex flex-col items-center w-full p-4 min-h-[550px] justify-center relative font-black font-black">
-                                            <div className="text-[16px] text-indigo-900 mb-12 flex items-center gap-2 font-black font-black font-black"><Icon name="activity" size={20} className="text-emerald-500" /> [전체 문항대비 난이도비율]</div>
+                                            {/* 🚀 전체 문항대비 난이도비율 제목 위에 크게 150%(24px)로 학교명과 시기 표시 */}
+                                            <div className="flex flex-col items-center mb-12 gap-2">
+                                                <div className="text-[24px] text-slate-800 font-black text-center tracking-tight">
+                                                    {filters.school.join(', ')} {filters.period !== '전체' ? filters.period : '전체 시기'}
+                                                </div>
+                                                <div className="text-[16px] text-indigo-900 flex items-center gap-2 font-black font-black font-black">
+                                                    <Icon name="activity" size={20} className="text-emerald-500" /> [전체 문항대비 난이도비율]
+                                                </div>
+                                            </div>
                                             
                                             <div className="flex flex-row w-full max-w-[60%] mx-auto relative h-[350px] font-black font-black">
                                                 <div className="absolute left-[-60px] top-0 bottom-12 w-14 border-r-2 border-slate-300 text-[11px] font-black text-slate-400 z-10 font-black">
@@ -615,14 +636,20 @@
 
                                     {activeTab === 'school-diff' && (
                                         <div className="flex flex-col items-center w-full p-4 min-h-[460px] justify-center relative font-black font-black font-black">
-                                            <div className="flex items-center justify-center gap-4 mb-8 w-full">
-                                                <div className="text-[16px] font-black text-indigo-900 flex items-center gap-2 font-black font-black font-black font-black font-black font-black">
-                                                    <Icon name="school" size={20} className="text-indigo-500" /> 학교별 종합 난이도 분포
+                                            {/* 🚀 학교별 종합 난이도 분포 제목 위에 150%(24px)로 시기 표시 추가 */}
+                                            <div className="flex flex-col items-center justify-center gap-3 mb-8 w-full">
+                                                <div className="text-[24px] text-slate-800 font-black text-center tracking-tight">
+                                                    {filters.period !== '전체' ? filters.period : '전체 시기'}
                                                 </div>
-                                                <label className="flex items-center gap-1.5 cursor-pointer bg-orange-50 px-2.5 py-1 rounded-md border border-orange-200 hover:bg-orange-100 transition-colors">
-                                                    <input type="checkbox" checked={showHighDiff} onChange={(e) => setShowHighDiff(e.target.checked)} className="rounded text-orange-600 w-3.5 h-3.5" />
-                                                    <span className="text-[12px] font-black text-orange-700">고난도</span>
-                                                </label>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="text-[16px] font-black text-indigo-900 flex items-center gap-2 font-black font-black font-black font-black font-black font-black">
+                                                        <Icon name="school" size={20} className="text-indigo-500" /> 학교별 종합 난이도 분포
+                                                    </div>
+                                                    <label className="flex items-center gap-1.5 cursor-pointer bg-orange-50 px-2.5 py-1 rounded-md border border-orange-200 hover:bg-orange-100 transition-colors">
+                                                        <input type="checkbox" checked={showHighDiff} onChange={(e) => setShowHighDiff(e.target.checked)} className="rounded text-orange-600 w-3.5 h-3.5" />
+                                                        <span className="text-[12px] font-black text-orange-700">고난도</span>
+                                                    </label>
+                                                </div>
                                             </div>
                                             <div className="flex gap-6 overflow-x-auto w-full pb-6 custom-scroll justify-start px-4 text-slate-900 font-black">
                                                 {schoolVerticalData.map((row) => {
