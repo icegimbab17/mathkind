@@ -139,12 +139,11 @@
         const isCanvasEnv = typeof __app_id !== 'undefined';
         const appId = isCanvasEnv ? __app_id : 'math-dashboard-app';
         
-        // Firestore 저장소 경로 설정 (깃허브 vs 내부환경 구분)
         const getCollectionRef = (db) => {
             if (isCanvasEnv && !myFirebaseConfig) {
                 return fbLibs.fs.collection(db, 'artifacts', appId, 'public', 'data', 'math_questions');
             } else {
-                return fbLibs.fs.collection(db, 'math_questions'); // 깃허브 등 외부 호스팅용 기본 경로
+                return fbLibs.fs.collection(db, 'math_questions'); 
             }
         };
 
@@ -191,12 +190,14 @@
                                 import('https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js'),
                                 import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js')
                             ]);
-                            firebaseApp = appLib.initializeApp(finalConfig);
+                            
+                            // 🚀 Firebase 중복 초기화 방지 (미리보기 화면 먹통 완벽 해결)
+                            const apps = appLib.getApps();
+                            firebaseApp = apps.length === 0 ? appLib.initializeApp(finalConfig) : apps[0];
                             firebaseDb = fsLib.getFirestore(firebaseApp);
                             fbLibs = { app: appLib, fs: fsLib, auth: authLib };
                             setIsCloud(true);
                             
-                            // Auth 로그인 시도
                             try {
                                 firebaseAuth = authLib.getAuth(firebaseApp);
                                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token && !myFirebaseConfig) {
@@ -241,7 +242,7 @@
                 });
             }, [data, filters]);
 
-            // 🚀 학교명이나 빈칸, 이상한 데이터 필터링 보강 (이미 올라간 데이터도 숨김)
+            // 🚀 필터링 옵션에서 빈칸이나 '학교명' 원천 제외
             const options = useMemo(() => ({
                 school: [...new Set(data.map(d => d.school))].filter(s => s && s !== '학교명' && s !== '학교' && s !== '미상'),
                 period: ['전체', ...new Set(data.map(d => d.period))],
@@ -306,9 +307,10 @@
                 });
             }, [filteredData, isComparing, activeSchools]);
 
+            // 🚀 데이터 소스를 filteredData로 적용하여 학기/단원 필터 완벽 적용
             const schoolVerticalData = useMemo(() => {
                 return activeSchools.filter(s => s && s !== '학교명' && s !== '학교').map(school => {
-                    const sData = data.filter(d => d.school === school);
+                    const sData = filteredData.filter(d => d.school === school);
                     const total = sData.length;
                     const diffCounts = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0 };
                     
@@ -321,7 +323,7 @@
                     }
                     return { school, total, diffCounts };
                 }).filter(row => row.total > 0);
-            }, [activeSchools, data]);
+            }, [activeSchools, filteredData]);
 
             const schoolTotals = useMemo(() => {
                 const totals = {};
@@ -330,6 +332,7 @@
                 return totals;
             }, [filteredData, isComparing, activeSchools]);
 
+            // 🚀 모달 리스트 등에서도 학교명 데이터 완벽 숨김
             const uniqueExams = useMemo(() => {
                 const exams = data.map(d => `${d.school}|${d.period}`);
                 return [...new Set(exams)].map(e => {
@@ -355,7 +358,7 @@
                             minor: findIdx(['소단원']), diff: findIdx(['난이도'])
                         };
                         
-                        // 🚀 '학교명'이라는 데이터 자체가 업로드되지 않도록 원천 차단 필터
+                        // 🚀 엑셀 파싱 시 '학교명' 데이터 유입 자체를 강력 차단
                         const newData = json.slice(headerIdx + 1).filter(row => {
                             if (!row || row.length === 0) return false;
                             const sName = String(row[idxMap.school] || '').trim();
@@ -474,7 +477,7 @@
                                     학교: {filters.school.length === 0 ? '선택안됨' : `${filters.school.length}개 선택`} <Icon name="chevron-down" size={10}/>
                                 </summary>
                                 <div className="absolute top-full left-0 w-48 bg-white border shadow-xl rounded-lg mt-1 p-2 z-50">
-                                    {options.school.filter(s => s !== '전체').map(opt => (
+                                    {options.school.map(opt => (
                                         <label key={opt} className="flex items-center gap-2 p-1 hover:bg-indigo-50 rounded cursor-pointer font-black">
                                             <input type="checkbox" checked={filters.school.includes(opt)} onChange={() => {
                                             setFilters(prev => {
@@ -635,7 +638,7 @@
                                                         
                                                         {/* 🚀 학교별 난이도 막대그래프 컨테이너 */}
                                                         <div className="relative w-full h-[180px] border-b-2 border-slate-50 pb-0 px-1 font-black flex items-end justify-center gap-1.5 mt-2">
-                                                            {/* 🚀 고난도 뱃지 위치를 50% 점선(top-0)에 완벽하게 겹치도록 수정 */}
+                                                            {/* 🚀 고난도 뱃지가 50% 점선(top-0)에 정확히 걸치도록 유지 */}
                                                             {showHighDiff && highDiffPct > 0 && (
                                                                 <div className="absolute top-0 right-1 -translate-y-1/2 z-30 pointer-events-none">
                                                                     <span className="text-[14px] font-black tracking-tighter text-orange-700 bg-orange-50/90 px-2 py-0.5 rounded shadow-sm border border-orange-300 whitespace-nowrap">
