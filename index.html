@@ -17,15 +17,14 @@
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
         
-        .custom-scroll::-webkit-scrollbar { height: 10px; }
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 10px; }
         .custom-scroll::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 10px; }
-        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; border: 2px solid #f1f5f9; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
         .custom-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
 
         .icon-box { display: inline-flex; align-items: center; justify-content: center; }
         .premium-shadow { box-shadow: 0 10px 40px -10px rgba(0,0,0,0.08), 0 0 15px rgba(0,0,0,0.03); }
         
-        /* 로딩 스피너 애니메이션 */
         .loader {
             border: 4px solid #f3f3f3;
             border-top: 4px solid #4f46e5;
@@ -52,7 +51,6 @@
             appId: "1:919722012853:web:1d35e60b64263563f68efc"
         };
 
-        // 🚀 Gemini API 설정 (빈 문자열 유지 필수)
         const apiKey = ""; 
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -167,7 +165,6 @@
             }
         };
 
-        // 🚀 파일(이미지)을 Base64로 변환
         const fileToBase64 = (file) => {
             return new Promise((resolve, reject) => {
                 const reader = new FileReader();
@@ -189,10 +186,10 @@
             const [showManageModal, setShowManageModal] = useState(false);
             const [isDragging, setIsDragging] = useState(false);
             const [showHighDiff, setShowHighDiff] = useState(false);
-            
             const [isAnalyzing, setIsAnalyzing] = useState(false);
             
-            // 🚀 전역 붙여넣기 이벤트를 위해 최신 processFile 함수를 저장하는 ref
+            // 🚀 다중 이미지 장바구니(Staging) 상태 추가
+            const [stagedImages, setStagedImages] = useState([]);
             const processFileRef = useRef();
 
             const loadLocalData = async () => {
@@ -267,28 +264,6 @@
                     return () => unsubscribe();
                 }
             }, [user, isCloud]);
-
-            // 🚀 붙여넣기 이벤트 리스너 등록
-            useEffect(() => {
-                const handleGlobalPaste = (e) => {
-                    const items = e.clipboardData?.items;
-                    if (!items) return;
-                    for (let i = 0; i < items.length; i++) {
-                        if (items[i].type.indexOf('image') !== -1) {
-                            const blob = items[i].getAsFile();
-                            if (blob) {
-                                const ext = items[i].type.split('/')[1] || 'png';
-                                const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: items[i].type });
-                                if (processFileRef.current) processFileRef.current(file);
-                                e.preventDefault();
-                                break; // 첫 번째 이미지만 처리
-                            }
-                        }
-                    }
-                };
-                window.addEventListener('paste', handleGlobalPaste);
-                return () => window.removeEventListener('paste', handleGlobalPaste);
-            }, []);
 
             const filteredData = useMemo(() => {
                 return data.filter(item => {
@@ -409,87 +384,126 @@
                   .sort((a, b) => a.type.localeCompare(b.type) || a.school.localeCompare(b.school));
             }, [data]);
 
-            const analyzeImageWithAI = async (file) => {
-                setIsAnalyzing(true);
-                try {
-                    const base64Data = await fileToBase64(file);
-                    const mimeType = file.type;
+            // 🚀 전역 붙여넣기 이벤트 리스너 (대기열에 추가)
+            useEffect(() => {
+                const handleGlobalPaste = async (e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            const blob = items[i].getAsFile();
+                            if (blob) {
+                                const ext = items[i].type.split('/')[1] || 'png';
+                                const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: items[i].type });
+                                if (processFileRef.current) processFileRef.current(file);
+                                e.preventDefault();
+                            }
+                        }
+                    }
+                };
+                window.addEventListener('paste', handleGlobalPaste);
+                return () => window.removeEventListener('paste', handleGlobalPaste);
+            }, []);
 
-                    const payload = {
-                        contents: [{
-                            role: "user",
-                            parts: [
-                                { text: "이 시험지/학습지 이미지에 포함된 모든 수학 문제들을 분석해줘. 각 문제에 대해 학교명, 출제시기, 학년, 과목, 문항번호, 대단원, 소단원, 난이도(1~8 사이의 숫자)를 추출해. 모르는 정보는 '미상'이나 '-'로 표시해." },
-                                { inlineData: { mimeType: mimeType, data: base64Data } }
-                            ]
-                        }],
-                        generationConfig: {
-                            responseMimeType: "application/json",
-                            responseSchema: {
-                                type: "OBJECT",
-                                properties: {
-                                    items: {
-                                        type: "ARRAY",
+            // 🚀 여러 장의 이미지를 순차적으로 AI 분석
+            const analyzeStagedImagesWithAI = async () => {
+                if(stagedImages.length === 0) return;
+                setIsAnalyzing(true);
+                let allExtractedItems = [];
+
+                try {
+                    for (const staged of stagedImages) {
+                        const base64Data = staged.dataUrl.split(',')[1];
+                        const mimeType = staged.file.type;
+
+                        const payload = {
+                            contents: [{
+                                role: "user",
+                                parts: [
+                                    { text: `이미지에 포함된 각 수학 문제를 분석하여 다음 규칙을 엄격히 적용해 데이터를 추출해줘.
+1. school(학교명): '출처'에서 학교 이름만 추출 (예: '분포중')
+2. period(출제시기): '출처'에서 연도와 학기를 가공해 추출 (예: '21년 분포중 중2공통 1학기 기말' -> '21년 2학년 1학기 기말')
+3. questionNum(문항번호): 문항의 번호 (숫자만)
+4. majorUnit(대단원): '유형' 텍스트를 '>'로 분리 시 두 번째 항목. 단, 앞의 숫자는 제외 (예: '06 연립방정식' -> '연립방정식')
+5. minorUnit(소단원): '유형' 텍스트를 '>'로 분리 시 세 번째 항목. 단, 앞의 숫자는 제외 (예: '01 미지수가...' -> '미지수가...')
+6. type(문제유형): 문제에 보기(①,②...)가 있으면 '객관식', 없으면 '서술형'
+7. difficulty(난이도): 우측 상단 배지의 난이도 숫자(1~8)
+8. grade(학년), subject(과목): 정보가 있으면 적고 없으면 '-'` },
+                                    { inlineData: { mimeType: mimeType, data: base64Data } }
+                                ]
+                            }],
+                            generationConfig: {
+                                responseMimeType: "application/json",
+                                responseSchema: {
+                                    type: "OBJECT",
+                                    properties: {
                                         items: {
-                                            type: "OBJECT",
-                                            properties: {
-                                                school: { type: "STRING", description: "학교명 (예: 센텀고, 해강중. 모르면 '미상')" },
-                                                period: { type: "STRING", description: "출제시기 (예: 2025 1학기중간. 모르면 '미상')" },
-                                                grade: { type: "STRING", description: "학년 (예: 1학년. 모르면 '-')" },
-                                                subject: { type: "STRING", description: "과목 (예: 수학상. 모르면 '-')" },
-                                                questionNum: { type: "STRING", description: "문항번호 (예: 1, 2, 3...)" },
-                                                majorUnit: { type: "STRING", description: "대단원 (모르면 '단원미지정')" },
-                                                minorUnit: { type: "STRING", description: "소단원 (모르면 '-')" },
-                                                difficulty: { type: "STRING", description: "난이도 (1부터 8까지의 숫자로만)" }
-                                            },
-                                            required: ["school", "period", "questionNum", "majorUnit", "difficulty"]
+                                            type: "ARRAY",
+                                            items: {
+                                                type: "OBJECT",
+                                                properties: {
+                                                    school: { type: "STRING" },
+                                                    period: { type: "STRING" },
+                                                    grade: { type: "STRING" },
+                                                    subject: { type: "STRING" },
+                                                    questionNum: { type: "STRING" },
+                                                    majorUnit: { type: "STRING" },
+                                                    minorUnit: { type: "STRING" },
+                                                    type: { type: "STRING", description: "문제유형 ('객관식' 또는 '서술형')" },
+                                                    difficulty: { type: "STRING" }
+                                                },
+                                                required: ["school", "period", "questionNum", "majorUnit", "type", "difficulty"]
+                                            }
                                         }
                                     }
                                 }
                             }
-                        }
-                    };
+                        };
 
-                    const delays = [1000, 2000, 4000, 8000, 16000];
-                    let result = null;
-                    
-                    for (let i = 0; i < 5; i++) {
-                        try {
-                            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify(payload)
-                            });
-                            if (!response.ok) throw new Error('API Error');
-                            result = await response.json();
-                            break;
-                        } catch (err) {
-                            if (i === 4) throw err;
-                            await new Promise(r => setTimeout(r, delays[i]));
-                        }
-                    }
-
-                    if (result && result.candidates && result.candidates[0].content.parts[0].text) {
-                        const jsonText = result.candidates[0].content.parts[0].text;
-                        const parsed = JSON.parse(jsonText);
+                        let result = null;
+                        const delays = [1000, 2000, 4000, 8000];
                         
-                        if (parsed.items && Array.isArray(parsed.items)) {
-                            const formattedData = parsed.items.map((item, i) => {
-                                const diffNum = String(item.difficulty || '4').match(/[1-8]/)?.[0] || '4';
-                                return {
+                        for (let i = 0; i < 4; i++) {
+                            try {
+                                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify(payload)
+                                });
+                                if (!response.ok) throw new Error('API Error');
+                                result = await response.json();
+                                break;
+                            } catch (err) {
+                                if (i === 3) throw err;
+                                await new Promise(r => setTimeout(r, delays[i]));
+                            }
+                        }
+
+                        if (result && result.candidates && result.candidates[0].content.parts[0].text) {
+                            const parsed = JSON.parse(result.candidates[0].content.parts[0].text);
+                            if (parsed.items && Array.isArray(parsed.items)) {
+                                const formattedData = parsed.items.map((item, i) => ({
                                     id: Date.now() + i + Math.random(),
                                     period: item.period || '미상',
                                     school: item.school || '미상',
                                     grade: item.grade || '-',
                                     subject: item.subject || '-',
                                     questionNum: String(item.questionNum || '-').replace(/[^0-9]/g, ''),
-                                    majorUnit: item.majorUnit || '단원미지정',
-                                    minorUnit: item.minorUnit || '-',
-                                    difficulty: diffNum
-                                };
-                            });
-                            setPendingData({ filename: file.name, items: formattedData, isAiExtracted: true });
+                                    type: item.type || '-',
+                                    majorUnit: (item.majorUnit || '단원미지정').replace(/^[0-9\s]+/, '').trim(),
+                                    minorUnit: (item.minorUnit || '-').replace(/^[0-9\s]+/, '').trim(),
+                                    difficulty: String(item.difficulty || '4').match(/[1-8]/)?.[0] || '4'
+                                }));
+                                allExtractedItems = [...allExtractedItems, ...formattedData];
+                            }
                         }
+                    }
+
+                    if (allExtractedItems.length > 0) {
+                        setPendingData({ filename: '다중 이미지 분석', items: allExtractedItems, isAiExtracted: true });
+                        setStagedImages([]); // 성공 시 장바구니 비우기
+                    } else {
+                        alert("분석된 문항이 없습니다. 이미지를 다시 확인해주세요.");
                     }
                 } catch (error) {
                     alert("AI 이미지 분석 중 오류가 발생했습니다. 다시 시도해주세요.");
@@ -499,11 +513,13 @@
                 }
             };
 
-            const processFile = (file) => {
+            // 🚀 파일 처리 (이미지는 장바구니로, 엑셀은 즉시 처리)
+            const processFile = async (file) => {
                 if (!file) return;
                 
                 if (file.type.startsWith('image/')) {
-                    analyzeImageWithAI(file);
+                    const dataUrl = await fileToBase64(file);
+                    setStagedImages(prev => [...prev, { id: Date.now() + Math.random(), file, dataUrl: `data:${file.type};base64,${dataUrl}` }]);
                     if(fileInputRef.current) fileInputRef.current.value = '';
                     return;
                 }
@@ -519,7 +535,7 @@
                         const findIdx = (names) => names.reduce((acc, name) => acc !== -1 ? acc : header.findIndex(h => h.includes(name)), -1);
                         const idxMap = {
                             period: findIdx(['출제시기', '시기']), school: findIdx(['학교명', '학교']), grade: findIdx(['학년']), subject: findIdx(['과목']),
-                            qNum: findIdx(['문항번호', '번호']), major: findIdx(['대단원', '단원']),
+                            qNum: findIdx(['문항번호', '번호']), type: findIdx(['문항유형', '유형', '문제유형']), major: findIdx(['대단원', '단원']),
                             minor: findIdx(['소단원']), diff: findIdx(['난이도'])
                         };
                         
@@ -533,7 +549,7 @@
                             const diffNum = rawDiff.match(/[1-8]/)?.[0] || '4'; 
                             return {
                                 id: Date.now() + i + Math.random(), period: String(cols[idxMap.period] || '미상').trim(), school: String(cols[idxMap.school] || '미상').trim(),
-                                questionNum: String(cols[idxMap.qNum] || '-').trim(),
+                                questionNum: String(cols[idxMap.qNum] || '-').trim(), type: String(cols[idxMap.type] || '-').trim(),
                                 majorUnit: String(cols[idxMap.major] || '단원미지정').trim(), minorUnit: String(cols[idxMap.minor] || '-').trim(),
                                 difficulty: diffNum
                             };
@@ -545,7 +561,6 @@
                 reader.readAsArrayBuffer(file);
             };
 
-            // 🚀 processFile 함수 최신화 저장
             useEffect(() => {
                 processFileRef.current = processFile;
             });
@@ -610,13 +625,49 @@
                      onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }} 
                      onDragOver={(e)=>e.preventDefault()} 
                      onDragLeave={(e) => { if(e.relatedTarget === null) setIsDragging(false); }}
-                     onDrop={(e)=>{e.preventDefault(); setIsDragging(false); processFile(e.dataTransfer.files[0])}}>
+                     onDrop={(e)=>{e.preventDefault(); setIsDragging(false); 
+                        const files = e.dataTransfer.files;
+                        for(let i=0; i<files.length; i++) processFile(files[i]);
+                     }}>
                     
+                    {/* 🚀 다중 이미지 장바구니 렌더링 (대기열) */}
+                    {stagedImages.length > 0 && !isAnalyzing && !pendingData && (
+                        <div className="fixed bottom-6 right-6 bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 z-[150] w-80 flex flex-col max-h-[80vh]">
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-lg font-black text-indigo-900 flex items-center gap-2">
+                                    <Icon name="image" size={20} className="text-indigo-500" />
+                                    대기중인 이미지 ({stagedImages.length})
+                                </h3>
+                                <button onClick={() => setStagedImages([])} className="p-1 rounded-full hover:bg-slate-100 text-slate-400 transition-colors">
+                                    <Icon name="x" size={20} />
+                                </button>
+                            </div>
+                            
+                            <div className="flex-1 overflow-y-auto custom-scroll flex flex-col gap-3 mb-4 pr-2">
+                                {stagedImages.map((img, idx) => (
+                                    <div key={img.id} className="relative group rounded-lg overflow-hidden border border-slate-200 shadow-sm">
+                                        <img src={img.dataUrl} className="w-full h-auto block" alt={`staged-${idx}`} />
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                            <button onClick={() => setStagedImages(prev => prev.filter(p => p.id !== img.id))} className="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 shadow-lg">
+                                                <Icon name="trash-2" size={18} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <button onClick={analyzeStagedImagesWithAI} className="w-full bg-indigo-600 text-white font-black py-3.5 rounded-xl shadow-lg hover:bg-indigo-700 transition-transform active:scale-95 flex items-center justify-center gap-2">
+                                <Icon name="sparkles" size={20} />
+                                {stagedImages.length}장 일괄 AI 분석
+                            </button>
+                        </div>
+                    )}
+
                     {isAnalyzing && (
                         <div className="fixed inset-0 z-[300] bg-slate-900/80 flex flex-col items-center justify-center text-white backdrop-blur-sm">
                             <div className="loader mb-6"></div>
-                            <h2 className="text-2xl font-black tracking-tight">AI가 시험지 이미지를 분석하고 있습니다...</h2>
-                            <p className="text-slate-300 mt-2 font-bold">표, 그래프, 문제 구조를 파악하는 중입니다. (약 5~10초 소요)</p>
+                            <h2 className="text-2xl font-black tracking-tight">AI가 시험지 이미지 {stagedImages.length}장을 분석하고 있습니다...</h2>
+                            <p className="text-slate-300 mt-2 font-bold">표, 그래프, 문제 구조를 파악하는 중입니다.</p>
                         </div>
                     )}
 
@@ -650,35 +701,44 @@
 
                     {pendingData && (
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4 text-slate-900">
-                            <div className="bg-white rounded-2xl p-6 max-w-3xl w-full text-center shadow-2xl flex flex-col max-h-[90vh]">
+                            <div className="bg-white rounded-2xl p-6 max-w-5xl w-full text-center shadow-2xl flex flex-col max-h-[90vh]">
                                 <Icon name="check-circle" size={48} className="text-emerald-500 mx-auto mb-2 shrink-0" />
                                 <h2 className="text-xl font-black mb-1 tracking-tight">
                                     {pendingData.isAiExtracted ? "AI 이미지 분석 완료" : "데이터 준비 완료"}
                                 </h2>
                                 <p className="font-bold text-slate-500 mb-4 text-sm shrink-0">
-                                    <span className="text-indigo-600 underline font-black">{pendingData.items.length}개</span>의 문항을 찾았습니다. 적용 전 내역을 확인해주세요.
+                                    <span className="text-indigo-600 underline font-black">{pendingData.items.length}개</span>의 문항을 찾았습니다. 검수 후 적용해주세요.
                                 </p>
 
-                                <div className="flex-1 overflow-y-auto bg-slate-50 rounded-xl border border-slate-200 mb-6 text-left shadow-inner custom-scroll">
-                                    <table className="w-full text-[11px] whitespace-nowrap">
-                                        <thead className="bg-slate-200/50 text-slate-500 sticky top-0 backdrop-blur-md font-black shadow-sm">
+                                {/* 🚀 확장된 검증 테이블 (문제유형, 소단원 추가) */}
+                                <div className="flex-1 overflow-auto bg-slate-50 rounded-xl border border-slate-200 mb-6 text-left shadow-inner custom-scroll relative">
+                                    <table className="w-full text-[11px] whitespace-nowrap min-w-[700px]">
+                                        <thead className="bg-slate-200/80 text-slate-600 sticky top-0 backdrop-blur-md font-black shadow-sm z-10">
                                             <tr>
-                                                <th className="px-4 py-2">번호</th>
-                                                <th className="px-4 py-2">학교</th>
-                                                <th className="px-4 py-2">시기</th>
-                                                <th className="px-4 py-2">대단원</th>
-                                                <th className="px-4 py-2 text-center">난이도</th>
+                                                <th className="px-4 py-2 border-b">번호</th>
+                                                <th className="px-4 py-2 border-b">학교</th>
+                                                <th className="px-4 py-2 border-b">시기</th>
+                                                <th className="px-4 py-2 border-b">대단원</th>
+                                                <th className="px-4 py-2 border-b">소단원</th>
+                                                <th className="px-4 py-2 border-b text-center">문제유형</th>
+                                                <th className="px-4 py-2 border-b text-center">난이도</th>
                                             </tr>
                                         </thead>
-                                        <tbody className="divide-y divide-slate-200 font-bold">
+                                        <tbody className="divide-y divide-slate-200 font-bold text-slate-800">
                                             {pendingData.items.map((row, idx) => (
-                                                <tr key={idx} className="hover:bg-white">
-                                                    <td className="px-4 py-1.5">{row.questionNum}번</td>
-                                                    <td className="px-4 py-1.5 text-indigo-700">{row.school}</td>
-                                                    <td className="px-4 py-1.5 text-slate-600">{row.period}</td>
-                                                    <td className="px-4 py-1.5">{row.majorUnit}</td>
-                                                    <td className="px-4 py-1.5 text-center">
-                                                        <span className="px-2 py-0.5 rounded text-[9px] text-white font-black bg-slate-400" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] }}>
+                                                <tr key={idx} className="hover:bg-indigo-50/50 transition-colors">
+                                                    <td className="px-4 py-2 text-indigo-900 font-black">{row.questionNum}번</td>
+                                                    <td className="px-4 py-2 text-indigo-700">{row.school}</td>
+                                                    <td className="px-4 py-2 text-slate-600">{row.period}</td>
+                                                    <td className="px-4 py-2 max-w-[150px] truncate" title={row.majorUnit}>{row.majorUnit}</td>
+                                                    <td className="px-4 py-2 max-w-[200px] truncate text-slate-500" title={row.minorUnit}>{row.minorUnit}</td>
+                                                    <td className="px-4 py-2 text-center">
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black ${row.type === '객관식' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'}`}>
+                                                            {row.type}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-center">
+                                                        <span className="px-2 py-0.5 rounded text-[10px] text-white font-black shadow-sm" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] }}>
                                                             {row.difficulty}
                                                         </span>
                                                     </td>
@@ -689,8 +749,8 @@
                                 </div>
 
                                 <div className="flex gap-3 shrink-0">
-                                    <button onClick={confirmUpload} className="flex-1 bg-indigo-600 text-white font-black py-3 rounded-xl shadow-lg hover:bg-indigo-700 transition-colors">이상 없음, 적용하기</button>
-                                    <button onClick={() => setPendingData(null)} className="flex-1 bg-slate-100 font-black py-3 rounded-xl text-slate-500 hover:bg-slate-200 transition-colors">취소</button>
+                                    <button onClick={confirmUpload} className="flex-1 bg-indigo-600 text-white font-black py-3.5 rounded-xl shadow-lg hover:bg-indigo-700 transition-transform active:scale-95 text-lg">이상 없음, DB에 적용하기</button>
+                                    <button onClick={() => setPendingData(null)} className="w-1/3 bg-slate-200 font-black py-3.5 rounded-xl text-slate-600 hover:bg-slate-300 transition-colors">취소</button>
                                 </div>
                             </div>
                         </div>
@@ -703,7 +763,9 @@
                                 <span className="text-slate-400 text-[10px] font-bold border-l pl-3 ml-1 uppercase font-black">{totalUnitsAnalyzed} Units | {totalQuestionsAnalyzed} Qs</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <input type="file" accept=".xlsx, .xls, .csv, image/png, image/jpeg, image/jpg" ref={fileInputRef} className="hidden" onChange={(e) => processFile(e.target.files[0])} />
+                                <input type="file" accept=".xlsx, .xls, .csv, image/png, image/jpeg, image/jpg" ref={fileInputRef} className="hidden" multiple onChange={(e) => {
+                                    for(let i=0; i<e.target.files.length; i++) processFile(e.target.files[i]);
+                                }} />
                                 <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 bg-indigo-50 text-indigo-700 font-black rounded-lg text-[10px] hover:bg-indigo-100 transition-all font-black flex items-center gap-1.5"><Icon name="upload" size={14}/>엑셀/이미지(Ctrl+V) 업로드</button>
                                 <button onClick={() => setShowManageModal(true)} className="px-3 py-1 bg-rose-50 text-rose-600 font-black rounded-lg text-[10px] hover:bg-rose-100 transition-all shadow-sm font-black">데이터 관리/삭제</button>
                             </div>
@@ -723,7 +785,7 @@
                                 <summary className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-black cursor-pointer list-none flex items-center gap-2 text-slate-900 shadow-sm">
                                     학교: {filters.school.length === 0 ? '선택안됨' : `${filters.school.length}개 선택`} <Icon name="chevron-down" size={10}/>
                                 </summary>
-                                <div className="absolute top-full left-0 w-48 bg-white border shadow-xl rounded-lg mt-1 p-2 z-50">
+                                <div className="absolute top-full left-0 w-48 bg-white border shadow-xl rounded-lg mt-1 p-2 z-50 max-h-[300px] overflow-y-auto custom-scroll">
                                     {options.school.map(opt => (
                                         <label key={opt} className="flex items-center gap-2 p-1 hover:bg-indigo-50 rounded cursor-pointer font-black">
                                             <input type="checkbox" checked={filters.school.includes(opt)} onChange={() => {
@@ -943,12 +1005,12 @@
                             <div className="overflow-x-auto font-black font-black">
                                 <table className="w-full text-left text-[11px] whitespace-nowrap text-slate-900 font-black font-black">
                                     <thead className="bg-slate-50 text-slate-400 uppercase tracking-tighter shadow-sm font-black font-black">
-                                        <tr><th className="px-6 py-2 font-black">번호</th><th className="px-6 py-2 font-black">대단원</th><th className="px-6 py-2 font-black font-black">소단원</th><th className="px-6 py-2 text-center font-black font-black">난이도</th></tr>
+                                        <tr><th className="px-6 py-2 font-black">번호</th><th className="px-6 py-2 font-black">대단원</th><th className="px-6 py-2 font-black font-black">소단원</th><th className="px-6 py-2 font-black font-black text-center">문제유형</th><th className="px-6 py-2 text-center font-black font-black">난이도</th></tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50 font-black font-black">
                                         {filters.school.length === 0 ? (
                                             <tr>
-                                                <td colSpan="4" className="px-6 py-10 text-center text-slate-400 font-bold font-black font-black">학교를 선택하면 문항 리스트가 표시됩니다.</td>
+                                                <td colSpan="5" className="px-6 py-10 text-center text-slate-400 font-bold font-black font-black">학교를 선택하면 문항 리스트가 표시됩니다.</td>
                                             </tr>
                                         ) : (
                                             filteredData.map(row => {
@@ -956,9 +1018,14 @@
                                                 const lvl = m ? m[0] : '4';
                                                 return (
                                                     <tr key={row.id} className="hover:bg-slate-50 transition-colors font-black font-black font-black">
-                                                        <td className="px-6 py-1.5 font-black">{row.questionNum}번</td>
+                                                        <td className="px-6 py-1.5 font-black text-indigo-900">{row.questionNum}번</td>
                                                         <td className="px-6 py-1.5 text-slate-700 font-black font-black font-black">{row.majorUnit}</td>
                                                         <td className="px-6 py-1.5 text-slate-500 font-black font-black font-black">{row.minorUnit}</td>
+                                                        <td className="px-6 py-1.5 text-center font-black font-black">
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black ${row.type === '객관식' ? 'bg-blue-50 text-blue-600' : 'bg-rose-50 text-rose-600'}`}>
+                                                                {row.type || '-'}
+                                                            </span>
+                                                        </td>
                                                         <td className="px-6 py-1.5 text-center font-black font-black">
                                                             <span className="px-2 py-0.5 rounded-full text-[10px] text-white font-black font-black font-black" style={{ backgroundColor: DIFFICULTY_COLORS[lvl] }}>{DIFF_LABELS[lvl]}</span>
                                                         </td>
