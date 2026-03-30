@@ -52,6 +52,7 @@
         };
 
         const apiKey = ""; 
+        // 💡 새로 발급받은 정상 작동 API 키
         const INITIAL_MY_GEMINI_KEY = "AIzaSyBLq1VoY14mqAL871gx-htSzVGsI7hAw6c";
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -195,9 +196,12 @@
             
             const processFileRef = useRef();
 
+            // 💡 [핵심 해결 영역] 브라우저에 저장된 옛날 고장난 키를 완전히 무시하고, 무조건 새 키로 덮어씌웁니다.
             useEffect(() => {
-                const savedKey = localStorage.getItem('my_gemini_api_key');
-                if (savedKey) setCustomApiKey(savedKey);
+                // 기존 잘못된 캐시 완전 삭제
+                localStorage.removeItem('my_gemini_api_key');
+                // 무조건 새 키 적용
+                setCustomApiKey(INITIAL_MY_GEMINI_KEY);
             }, []);
 
             const normalizeDataList = (list) => {
@@ -459,8 +463,6 @@
                 const activeKey = isExternalEnv ? customApiKey : apiKey;
                 const modelName = isExternalEnv ? "gemini-1.5-flash" : "gemini-2.5-flash-preview-09-2025";
 
-                // 💡 [핵심 수정 부분] 캔버스 환경에서는 activeKey가 비어있어도 무시하고 넘어가도록 수정했습니다.
-                // 이제 캔버스 환경(미리보기)에서는 에러창 없이 즉시 분석이 실행됩니다!
                 if(isExternalEnv && (!activeKey || activeKey.trim() === "")) { 
                     alert("Gemini API 키가 없습니다.\n우측 상단의 [데이터 관리/삭제] 버튼을 눌러 API 키를 먼저 설정해주세요."); 
                     setStagedImages([]); 
