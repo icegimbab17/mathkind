@@ -42,7 +42,6 @@
     <script type="text/babel" data-type="module">
         const { useState, useMemo, useRef, useEffect } = window.React;
 
-        // Firebase 설정 (환경 변수 또는 기본값)
         const myFirebaseConfig = {
             apiKey: "AIzaSyAfM4dIVjANychGT2798HTEQvwSxXRRWyQ",
             authDomain: "mathkind-142d4.firebaseapp.com",
@@ -53,7 +52,6 @@
         };
 
         const apiKey = ""; 
-        // 💡 선생님의 새로운 API 키 적용
         const INITIAL_MY_GEMINI_KEY = "AIzaSyBLq1VoY14mqAL871gx-htSzVGsI7hAw6c";
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -196,7 +194,7 @@
             
             const processFileRef = useRef();
 
-            // 💡 브라우저에 저장된 옛날 고장난 키를 완전히 무시하고, 무조건 새 키로 강제 업데이트
+            // 💡 [해결] 브라우저에 저장된 옛날 고장난 키를 완전히 삭제하고, 무조건 선생님의 새 키로 고정합니다.
             useEffect(() => {
                 localStorage.removeItem('my_gemini_api_key');
                 setCustomApiKey(INITIAL_MY_GEMINI_KEY);
@@ -418,12 +416,93 @@
                   .sort((a, b) => a.type.localeCompare(b.type) || a.school.localeCompare(b.school));
             }, [data]);
 
+            const processFile = async (file) => {
+                if (!file) return;
+                
+                // 💡 새 이미지가 들어오면 이전 분석 결과 모달을 닫아 대기창이 보이게 함
+                setPendingData(null); 
+
+                if (file.type.startsWith('image/')) {
+                    const dataUrl = await fileToBase64(file);
+                    setStagedImages(prev => [...prev, { id: Date.now() + Math.random(), file, dataUrl: `data:${file.type};base64,${dataUrl}` }]);
+                    if(fileInputRef.current) fileInputRef.current.value = '';
+                    return;
+                }
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    try {
+                        const workbook = XLSX.read(new Uint8Array(evt.target.result), { type: 'array' });
+                        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+                        const headerIdx = json.findIndex(row => row && row.some(cell => String(cell).includes('학교명') || String(cell).includes('대단원') || String(cell).includes('난이도')));
+                        if (headerIdx === -1) throw new Error("헤더를 찾을 수 없습니다.");
+                        const header = json[headerIdx].map(h => String(h || '').trim());
+                        const findIdx = (names) => names.reduce((acc, name) => acc !== -1 ? acc : header.findIndex(h => h.includes(name)), -1);
+                        const idxMap = {
+                            period: findIdx(['출제시기', '시기']), school: findIdx(['학교명', '학교']), grade: findIdx(['학년']), subject: findIdx(['과목']),
+                            qNum: findIdx(['문항번호', '번호']), type: findIdx(['문항유형', '유형', '문제유형']), major: findIdx(['대단원', '단원']),
+                            minor: findIdx(['소단원']), diff: findIdx(['난이도'])
+                        };
+                        const newData = json.slice(headerIdx + 1).filter(row => {
+                            if (!row || row.length === 0) return false;
+                            const sName = String(row[idxMap.school] || '').trim();
+                            if (!sName || sName === '학교명' || sName === '학교') return false;
+                            return true;
+                        }).map((cols, i) => {
+                            const rawDiff = String(cols[idxMap.diff] || '4');
+                            const diffNum = rawDiff.match(/[1-8]/)?.[0] || '4'; 
+                            let extSchool = String(cols[idxMap.school] || '미상').trim();
+                            let extPeriod = String(cols[idxMap.period] || '미상').trim().replace(/년/g, '').trim(); 
+                            if (['센텀중', '해강중', '해운대중'].some(s => extSchool.includes(s))) {
+                                if (!extPeriod.includes('기말') && !extPeriod.includes('중간')) extPeriod = extPeriod + ' 기말';
+                            }
+                            return {
+                                id: Date.now() + i + Math.random(), period: extPeriod, school: extSchool,
+                                grade: String(cols[idxMap.grade] || '-').trim(), subject: String(cols[idxMap.subject] || '-').trim(),
+                                questionNum: String(cols[idxMap.qNum] || '-').trim(), type: String(cols[idxMap.type] || '-').trim(),
+                                majorUnit: String(cols[idxMap.major] || '단원미지정').trim(), minorUnit: String(cols[idxMap.minor] || '-').trim(),
+                                difficulty: diffNum
+                            };
+                        });
+                        newData.sort((a, b) => (parseInt(a.questionNum) || 0) - (parseInt(b.questionNum) || 0));
+                        setPendingData({ filename: file.name, items: newData, isAiExtracted: false });
+                    } catch (error) { alert("엑셀 파일 분석 오류: " + error.message); }
+                    if(fileInputRef.current) fileInputRef.current.value = '';
+                };
+                reader.readAsArrayBuffer(file);
+            };
+
+            useEffect(() => { processFileRef.current = processFile; });
+
+            // 💡 [해결] 전역 붙여넣기(Paste) 이벤트 리스너 복구 및 강화
+            useEffect(() => {
+                const handleGlobalPaste = async (e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+                    
+                    let imagesFound = false;
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            const blob = items[i].getAsFile();
+                            if (blob) {
+                                imagesFound = true;
+                                const ext = items[i].type.split('/')[1] || 'png';
+                                const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: items[i].type });
+                                if (processFileRef.current) processFileRef.current(file);
+                            }
+                        }
+                    }
+                    if (imagesFound) e.preventDefault();
+                };
+                
+                window.addEventListener('paste', handleGlobalPaste);
+                return () => window.removeEventListener('paste', handleGlobalPaste);
+            }, []);
+
             const analyzeStagedImagesWithAI = async () => {
                 if(stagedImages.length === 0) return;
                 
                 const isExternalEnv = typeof __app_id === 'undefined';
                 const activeKey = isExternalEnv ? customApiKey : apiKey;
-                // 💡 깃허브 등 외부 환경에서는 표준 모델명 'gemini-1.5-flash'를 사용하여 호환성 극대화
                 const modelName = isExternalEnv ? "gemini-1.5-flash" : "gemini-2.5-flash-preview-09-2025";
 
                 if(isExternalEnv && (!activeKey || activeKey.trim() === "")) { 
@@ -556,59 +635,6 @@
                 }
             };
 
-            const processFile = async (file) => {
-                if (!file) return;
-                if (file.type.startsWith('image/')) {
-                    const dataUrl = await fileToBase64(file);
-                    setStagedImages(prev => [...prev, { id: Date.now() + Math.random(), file, dataUrl: `data:${file.type};base64,${dataUrl}` }]);
-                    if(fileInputRef.current) fileInputRef.current.value = '';
-                    return;
-                }
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    try {
-                        const workbook = XLSX.read(new Uint8Array(evt.target.result), { type: 'array' });
-                        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
-                        const headerIdx = json.findIndex(row => row && row.some(cell => String(cell).includes('학교명') || String(cell).includes('대단원') || String(cell).includes('난이도')));
-                        if (headerIdx === -1) throw new Error("헤더를 찾을 수 없습니다.");
-                        const header = json[headerIdx].map(h => String(h || '').trim());
-                        const findIdx = (names) => names.reduce((acc, name) => acc !== -1 ? acc : header.findIndex(h => h.includes(name)), -1);
-                        const idxMap = {
-                            period: findIdx(['출제시기', '시기']), school: findIdx(['학교명', '학교']), grade: findIdx(['학년']), subject: findIdx(['과목']),
-                            qNum: findIdx(['문항번호', '번호']), type: findIdx(['문항유형', '유형', '문제유형']), major: findIdx(['대단원', '단원']),
-                            minor: findIdx(['소단원']), diff: findIdx(['난이도'])
-                        };
-                        const newData = json.slice(headerIdx + 1).filter(row => {
-                            if (!row || row.length === 0) return false;
-                            const sName = String(row[idxMap.school] || '').trim();
-                            if (!sName || sName === '학교명' || sName === '학교') return false;
-                            return true;
-                        }).map((cols, i) => {
-                            const rawDiff = String(cols[idxMap.diff] || '4');
-                            const diffNum = rawDiff.match(/[1-8]/)?.[0] || '4'; 
-                            let extSchool = String(cols[idxMap.school] || '미상').trim();
-                            let extPeriod = String(cols[idxMap.period] || '미상').trim().replace(/년/g, '').trim(); 
-                            if (['센텀중', '해강중', '해운대중'].some(s => extSchool.includes(s))) {
-                                if (!extPeriod.includes('기말') && !extPeriod.includes('중간')) extPeriod = extPeriod + ' 기말';
-                            }
-                            return {
-                                id: Date.now() + i + Math.random(), period: extPeriod, school: extSchool,
-                                grade: String(cols[idxMap.grade] || '-').trim(), subject: String(cols[idxMap.subject] || '-').trim(),
-                                questionNum: String(cols[idxMap.qNum] || '-').trim(), type: String(cols[idxMap.type] || '-').trim(),
-                                majorUnit: String(cols[idxMap.major] || '단원미지정').trim(), minorUnit: String(cols[idxMap.minor] || '-').trim(),
-                                difficulty: diffNum
-                            };
-                        });
-                        newData.sort((a, b) => (parseInt(a.questionNum) || 0) - (parseInt(b.questionNum) || 0));
-                        setPendingData({ filename: file.name, items: newData, isAiExtracted: false });
-                    } catch (error) { alert("엑셀 파일 분석 오류: " + error.message); }
-                    if(fileInputRef.current) fileInputRef.current.value = '';
-                };
-                reader.readAsArrayBuffer(file);
-            };
-
-            useEffect(() => { processFileRef.current = processFile; });
-
             const confirmUpload = async () => {
                 const uploadedExams = [...new Set(pendingData.items.map(item => `${item.school}|${item.grade}|${item.period}`))];
                 const existingExams = new Set(data.map(d => `${d.school}|${d.grade}|${d.period}`));
@@ -649,7 +675,7 @@
                     const dataRef = getCollectionRef(firebaseDb);
                     await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
                 } else {
-                    saveLocalData(data.filter(d => !(d.school === school && d.grade === grade && d.period === period)));
+                    saveLocalData(data.filter(d => !(d.school === school && d.period === period)));
                 }
             };
 
@@ -727,7 +753,7 @@
                                     <h2 className="text-2xl font-bold flex items-center gap-2"><Icon name="settings" className="text-indigo-500"/> 데이터 관리</h2>
                                     <button onClick={() => setShowManageModal(false)}><Icon name="x-circle" size={28} className="text-slate-400"/></button>
                                 </div>
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide mb-6">
+                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide mb-6 font-normal">
                                     {uniqueExams.length > 0 ? uniqueExams.map((exam, idx) => (
                                         <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border">
                                             <div>
@@ -743,7 +769,7 @@
                                 </div>
                                 <div className="flex gap-3 font-bold">
                                     <button onClick={handleClearData} className="flex-1 bg-red-50 text-red-600 border-2 border-red-100 py-3 rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center gap-2"><Icon name="trash-2" size={18} /> 전체 데이터 삭제</button>
-                                    <button onClick={() => setShowManageModal(false)} className="flex-1 bg-slate-800 text-white py-3 rounded-xl">닫기</button>
+                                    <button onClick={() => setShowManageModal(false)} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl">닫기</button>
                                 </div>
                             </div>
                         </div>
@@ -758,7 +784,7 @@
                                     <span className="text-indigo-600 underline">{pendingData.items.length}개</span>의 문항을 찾았습니다. 검수 후 적용해주세요.
                                     <br/><span className="text-emerald-600">💡 아래 표의 글자를 클릭하면 직접 바로 수정할 수 있습니다.</span>
                                 </p>
-                                <div className="flex-1 overflow-auto bg-slate-50 rounded-xl border border-slate-200 mb-6 text-left shadow-inner custom-scroll relative">
+                                <div className="flex-1 overflow-auto bg-slate-50 rounded-xl border border-slate-200 mb-6 text-left shadow-inner custom-scroll relative font-normal">
                                     <table className="w-full text-[11px] whitespace-nowrap min-w-[800px]">
                                         <thead className="bg-slate-200/80 text-slate-600 sticky top-0 backdrop-blur-md shadow-sm z-10 font-bold">
                                             <tr>
@@ -842,7 +868,7 @@
                                                     else next.push(opt);
                                                     return {...prev, school: next, grade: '전체', period: '전체', majorUnit: '전체'};
                                                 });
-                                            }} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[10px]">{opt}</span>
+                                            }} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[10px] font-normal">{opt}</span>
                                         </label>
                                     ))}
                                 </div>
@@ -850,7 +876,7 @@
                             {[{ key: 'grade', label: '학년', reset: { period: '전체', majorUnit: '전체' } }, { key: 'period', label: '시기', reset: { majorUnit: '전체' } }, { key: 'majorUnit', label: '단원', reset: {} }].map(({ key, label, reset }) => (
                                 <select key={key} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold focus:outline-none text-slate-600 shadow-sm" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value, ...reset }))}>
                                     <option value="전체">{label}</option>
-                                    {options[key].filter(o=>o!=='전체').map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                    {options[key].filter(o=>o!=='전체').map(opt => <option key={opt} value={opt} className="font-normal">{opt}</option>)}
                                 </select>
                             ))}
                         </section>
