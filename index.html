@@ -52,7 +52,8 @@
         };
 
         const apiKey = ""; 
-        const MY_GEMINI_KEY = "AIzaSyAMFvUDWLGguSfj2aGDzM3tlOZ-klIQjoU";
+        // 기본 셋팅된 API 키 (사용자가 설정 창에서 변경 가능하도록 기능 추가)
+        const INITIAL_MY_GEMINI_KEY = "AIzaSyAMFvUDWLGguSfj2aGDzM3tlOZ-klIQjoU";
 
         const Icon = ({ name, size = 24, className = "" }) => {
             const iconRef = useRef(null);
@@ -190,7 +191,16 @@
             const [isAnalyzing, setIsAnalyzing] = useState(false);
             
             const [stagedImages, setStagedImages] = useState([]);
+            
+            // 💡 [새로 추가됨] 깃허브 환경용 API 키 관리 상태
+            const [customApiKey, setCustomApiKey] = useState(INITIAL_MY_GEMINI_KEY);
+            
             const processFileRef = useRef();
+
+            useEffect(() => {
+                const savedKey = localStorage.getItem('my_gemini_api_key');
+                if (savedKey) setCustomApiKey(savedKey);
+            }, []);
 
             const normalizeDataList = (list) => {
                 return list.map(item => {
@@ -447,12 +457,13 @@
                 if(stagedImages.length === 0) return;
                 
                 const isExternalEnv = typeof __app_id === 'undefined';
-                const activeKey = isExternalEnv ? MY_GEMINI_KEY : apiKey;
-                // 💡 [변경됨] 외부 환경일 경우 호환성이 뛰어난 최신 1.5 flash 모델을 강제 지정합니다.
-                const modelName = isExternalEnv ? "gemini-1.5-flash-latest" : "gemini-2.5-flash-preview-09-2025";
+                
+                // 💡 [수정됨] 깃허브 환경에서는 설정 창에서 변경할 수 있는 customApiKey를 사용, 안정적인 1.5-flash 모델로 고정
+                const activeKey = isExternalEnv ? customApiKey : apiKey;
+                const modelName = isExternalEnv ? "gemini-1.5-flash" : "gemini-2.5-flash-preview-09-2025";
 
-                if(isExternalEnv && !activeKey) { 
-                    alert("Gemini API 키가 입력되지 않았습니다. 코드 상단에 키를 넣어주세요."); 
+                if(!activeKey || activeKey.trim() === "") { 
+                    alert("Gemini API 키가 없습니다.\n우측 상단의 [데이터 관리/삭제] 버튼을 눌러 API 키를 먼저 설정해주세요."); 
                     setStagedImages([]); 
                     return; 
                 }
@@ -578,7 +589,15 @@
                     }
                 } catch (error) {
                     console.error("AI 분석 중 실제 발생한 에러:", error);
-                    alert(`AI 분석 오류: ${error.message}`);
+                    
+                    // 💡 [수정됨] 명확한 에러 안내창 띄우기
+                    if (error.message.includes("not found") || error.message.includes("API version v1beta")) {
+                        alert(`[API 키 권한 오류]\n현재 등록된 API 키로는 Gemini 모델에 접근할 수 없습니다.\n\n해결 방법:\n1. aistudio.google.com/app/apikey 에 접속합니다.\n2. 새로운 API 키를 생성합니다.\n3. 우측 상단의 [데이터 관리/삭제] 창에서 새로운 키를 입력 후 저장해주세요.`);
+                    } else if (error.message.includes("API key not valid")) {
+                        alert(`[API 키 오류]\n입력하신 API 키가 유효하지 않습니다. 설정 창에서 정확히 복사되었는지 확인해주세요.`);
+                    } else {
+                        alert(`AI 분석 오류: ${error.message}`);
+                    }
                     setStagedImages([]); 
                 } finally {
                     setIsAnalyzing(false);
@@ -789,6 +808,32 @@
                                     <h2 className="text-2xl font-bold flex items-center gap-2"><Icon name="settings" className="text-indigo-500"/> 데이터 관리</h2>
                                     <button onClick={() => setShowManageModal(false)}><Icon name="x-circle" size={28} className="text-slate-400"/></button>
                                 </div>
+
+                                {/* 💡 [새로 추가됨] 깃허브 페이지 등 외부망 접속 시 편하게 API 키를 변경할 수 있는 설정 영역 */}
+                                {typeof __app_id === 'undefined' && (
+                                    <div className="mb-6 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                                        <label className="block text-sm font-bold text-indigo-900 mb-2">Google Gemini API 키 설정 (GitHub Pages 전용)</label>
+                                        <div className="flex gap-2">
+                                            <input 
+                                                type="password" 
+                                                value={customApiKey} 
+                                                onChange={(e) => setCustomApiKey(e.target.value)} 
+                                                className="flex-1 px-3 py-2 rounded-lg border border-indigo-200 outline-none focus:border-indigo-500 text-sm font-normal" 
+                                                placeholder="AIzaSy..." 
+                                            />
+                                            <button onClick={() => { 
+                                                localStorage.setItem('my_gemini_api_key', customApiKey); 
+                                                alert('API 키가 로컬 저장소에 저장되었습니다.'); 
+                                            }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 whitespace-nowrap">
+                                                저장
+                                            </button>
+                                        </div>
+                                        <p className="text-[11px] text-indigo-500 mt-2 font-normal leading-tight">
+                                            * 외부 서버에서는 오류 방지를 위해 <b>Google AI Studio (aistudio.google.com)</b> 에서 직접 발급받은 API 키가 필요합니다.
+                                        </p>
+                                    </div>
+                                )}
+
                                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide mb-6">
                                     {uniqueExams.length > 0 ? uniqueExams.map((exam, idx) => (
                                         <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border">
