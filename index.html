@@ -51,9 +51,7 @@
             appId: "1:919722012853:web:1d35e60b64263563f68efc"
         };
 
-        // 🚀 캔버스 환경에서는 런타임에 키가 주입되므로 비워두어야 합니다.
         const apiKey = ""; 
-        // 💡 GitHub Pages 등 외부 호스팅에서 사용할 선생님의 실제 API 키
         const MY_GEMINI_KEY = "AIzaSyAMFvUDWLGguSfj2aGDzM3tlOZ-klIQjoU";
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -79,7 +77,7 @@
 
             return (
                 <div className="flex flex-col items-center w-full p-0 m-0">
-                    {title && <h4 className="text-lg font-bold text-slate-800 mb-1 relative z-10">{title}</h4>}
+                    {title && <h4 className="text-lg font-bold text-slate-800 mb-1 relative z-10 text-center px-4">{title}</h4>}
                     <div className="relative w-full max-w-[300px] aspect-square flex items-center justify-center m-0 p-0 shrink-0">
                         <svg viewBox="-1.3 -1.3 2.6 2.6" className="w-full h-full drop-shadow-xl" style={{ transform: 'rotate(-90deg)' }}>
                             {data.map((slice, i) => {
@@ -183,7 +181,8 @@
             const [user, setUser] = useState(null);
             const fileInputRef = useRef(null);
             const [activeTab, setActiveTab] = useState(TABS[0].id); 
-            const [filters, setFilters] = useState({ schoolType: '고등학교', school: [], period: '전체', majorUnit: '전체' });
+            // 💡 grade 필터가 추가되었습니다.
+            const [filters, setFilters] = useState({ schoolType: '고등학교', school: [], grade: '전체', period: '전체', majorUnit: '전체' });
             
             const [pendingData, setPendingData] = useState(null);
             const [showManageModal, setShowManageModal] = useState(false);
@@ -194,10 +193,9 @@
             const [stagedImages, setStagedImages] = useState([]);
             const processFileRef = useRef();
 
-            // 💡 [새로 추가된 로직] DB에 이미 잘못 저장된 기존 데이터까지 자동으로 '기말'을 붙여서 잡아주는 정규화 함수
             const normalizeDataList = (list) => {
                 return list.map(item => {
-                    let period = String(item.period || '미상').trim();
+                    let period = String(item.period || '미상').trim().replace(/년/g, '').trim(); 
                     const school = String(item.school || '').trim();
                     if (['센텀중', '해강중', '해운대중'].some(s => school.includes(s))) {
                         if (!period.includes('기말') && !period.includes('중간') && period !== '전체') {
@@ -273,7 +271,7 @@
                     const dataRef = getCollectionRef(firebaseDb);
                     const unsubscribe = onSnapshot(dataRef, (snapshot) => {
                         const fetchedData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-                        setData(normalizeDataList(fetchedData)); // 💡 Firebase 데이터도 화면에 띄울 때 정규화
+                        setData(normalizeDataList(fetchedData));
                     }, (error) => {
                         console.error("Firestore 읽기 권한이 없습니다. Firebase 규칙을 확인해주세요.", error);
                     });
@@ -286,6 +284,7 @@
                     const schoolMatch = filters.school.includes(item.school);
                     const typeMatch = getSchoolType(item.school) === filters.schoolType;
                     return typeMatch && schoolMatch &&
+                           (filters.grade === '전체' || item.grade === filters.grade) &&
                            (filters.period === '전체' || item.period === filters.period) &&
                            (filters.majorUnit === '전체' || item.majorUnit === filters.majorUnit);
                 });
@@ -297,7 +296,7 @@
                 });
             }, [data, filters]);
 
-            // 💡 [변경됨] 선택된 학교에 맞춰 시기와 단원 필터 목록이 동적으로 변경되도록 개선
+            // 💡 필터 종속성 연쇄(Cascade) 설정 로직
             const options = useMemo(() => {
                 const currentTypeSchools = [...new Set(data.map(d => d.school))]
                     .filter(s => s && s !== '학교명' && s !== '학교' && s !== '미상')
@@ -305,17 +304,34 @@
 
                 let relevantData = data.filter(d => getSchoolType(d.school) === (filters.schoolType || '고등학교'));
                 
-                // 선택된 학교가 있다면 해당 학교의 데이터만으로 시기와 단원을 필터링
                 if (filters.school && filters.school.length > 0) {
                     relevantData = relevantData.filter(d => filters.school.includes(d.school));
                 }
 
+                // 학년 목록 추출
+                const gradeOptions = ['전체', ...new Set(relevantData.map(d => d.grade))].filter(g => g && g !== '-').sort();
+
+                if (filters.grade !== '전체') {
+                    relevantData = relevantData.filter(d => d.grade === filters.grade);
+                }
+
+                // 시기 목록 추출
+                const periodOptions = ['전체', ...new Set(relevantData.map(d => d.period))].filter(p => p).sort();
+
+                if (filters.period !== '전체') {
+                    relevantData = relevantData.filter(d => d.period === filters.period);
+                }
+
+                // 단원 목록 추출
+                const majorUnitOptions = ['전체', ...new Set(relevantData.map(d => d.majorUnit))];
+
                 return {
                     school: currentTypeSchools.sort(),
-                    period: ['전체', ...new Set(relevantData.map(d => d.period))].sort(),
-                    majorUnit: ['전체', ...new Set(relevantData.map(d => d.majorUnit))]
+                    grade: gradeOptions,
+                    period: periodOptions,
+                    majorUnit: majorUnitOptions
                 };
-            }, [data, filters.schoolType, filters.school]);
+            }, [data, filters.schoolType, filters.school, filters.grade, filters.period]);
 
             const activeSchools = useMemo(() => {
                 return filters.school;
@@ -400,13 +416,13 @@
             }, [filteredData, isComparing, activeSchools]);
 
             const uniqueExams = useMemo(() => {
-                const exams = data.map(d => `${d.school}|${d.period}`);
+                const exams = data.map(d => `${d.school}|${d.grade}|${d.period}`);
                 return [...new Set(exams)].map(e => {
-                    const [school, period] = e.split('|');
+                    const [school, grade, period] = e.split('|');
                     const schoolType = getSchoolType(school);
                     return { 
-                        school, period, type: schoolType, 
-                        count: data.filter(d => d.school === school && d.period === period).length 
+                        school, grade, period, type: schoolType, 
+                        count: data.filter(d => d.school === school && d.grade === grade && d.period === period).length 
                     };
                 }).filter(e => e.school && e.school !== '학교명' && e.school !== '학교')
                   .sort((a, b) => a.type.localeCompare(b.type) || a.school.localeCompare(b.school));
@@ -457,10 +473,9 @@
                             contents: [{
                                 role: "user",
                                 parts: [
-                                    // 💡 [변경됨] 센텀중, 해강중, 해운대중은 무조건 '기말'을 포함하도록 강력한 지침 추가
                                     { text: `업로드된 수학 문제 카드 이미지를 분석하여 JSON 데이터로 추출해.
 다음 규칙을 엄격하게 적용할 것:
-1. period (출제시기): 하단 [출처]에서 연도, 학기, 중간/기말 여부를 모두 포함하여 정확히 추출. '24년'이나 '25년'은 '2024년', '2025년' 등으로 변환. 특히 '센텀중', '해강중', '해운대중'의 경우 무조건 '기말'을 포함해서 출력할 것 (예: '2024년 1학기 기말')
+1. period (출제시기): 하단 [출처]에서 연도, 학기, 중간/기말 여부를 모두 포함하여 정확히 추출하되 '년' 글자는 제외할 것. '24년'이나 '25년'은 '2024', '2025' 등으로 변환. 특히 '센텀중', '해강중', '해운대중'의 경우 무조건 '기말'을 포함해서 출력할 것 (예: '2024 1학기 기말')
 2. school (학교명): 하단 [출처]에서 학교 이름만 정확히 추출 (예: '해운대중')
 3. grade (학년): 하단 [출처]에서 학년 추출 (예: '중2공통' -> '중2' 또는 '1학년')
 4. subject (과목): 하단 [출처]나 [유형]에서 과목 추출 (없으면 '수학')
@@ -527,9 +542,8 @@
                             if (parsed.items && Array.isArray(parsed.items)) {
                                 const formattedData = parsed.items.map((item, i) => {
                                     let extractedSchool = String(item.school || '미상').trim();
-                                    let extractedPeriod = String(item.period || '미상').trim();
+                                    let extractedPeriod = String(item.period || '미상').trim().replace(/년/g, '').trim();
                                     
-                                    // 💡 [확실한 조치] 부분 일치(.some + .includes)를 사용하여 공백이 있어도 완벽하게 잡아냅니다.
                                     if (['센텀중', '해강중', '해운대중'].some(s => extractedSchool.includes(s))) {
                                         if (!extractedPeriod.includes('기말') && !extractedPeriod.includes('중간')) {
                                             extractedPeriod = extractedPeriod + ' 기말';
@@ -610,9 +624,8 @@
                             const diffNum = rawDiff.match(/[1-8]/)?.[0] || '4'; 
                             
                             let extSchool = String(cols[idxMap.school] || '미상').trim();
-                            let extPeriod = String(cols[idxMap.period] || '미상').trim();
+                            let extPeriod = String(cols[idxMap.period] || '미상').trim().replace(/년/g, '').trim(); 
                             
-                            // 💡 엑셀 업로드 시에도 누락 방지
                             if (['센텀중', '해강중', '해운대중'].some(s => extSchool.includes(s))) {
                                 if (!extPeriod.includes('기말') && !extPeriod.includes('중간')) {
                                     extPeriod = extPeriod + ' 기말';
@@ -651,12 +664,12 @@
             });
 
             const confirmUpload = async () => {
-                const uploadedExams = [...new Set(pendingData.items.map(item => `${item.school}|${item.period}`))];
-                const existingExams = new Set(data.map(d => `${d.school}|${d.period}`));
+                const uploadedExams = [...new Set(pendingData.items.map(item => `${item.school}|${item.grade}|${item.period}`))];
+                const existingExams = new Set(data.map(d => `${d.school}|${d.grade}|${d.period}`));
                 const overlaps = uploadedExams.filter(exam => existingExams.has(exam));
 
                 if (overlaps.length > 0) {
-                    if (!window.confirm("동일한 학교 및 시기의 데이터가 이미 존재합니다.\n중복을 방지하기 위해 기존 데이터를 지우고 새 데이터로 덮어쓰시겠습니까?")) {
+                    if (!window.confirm("동일한 학교, 학년 및 시기의 데이터가 이미 존재합니다.\n중복을 방지하기 위해 기존 데이터를 지우고 새 데이터로 덮어쓰시겠습니까?")) {
                         setPendingData(null);
                         return; 
                     }
@@ -667,13 +680,13 @@
                     const dataRef = getCollectionRef(firebaseDb);
 
                     if (overlaps.length > 0) {
-                        const idsToDelete = data.filter(d => overlaps.includes(`${d.school}|${d.period}`)).map(d => d.id);
+                        const idsToDelete = data.filter(d => overlaps.includes(`${d.school}|${d.grade}|${d.period}`)).map(d => d.id);
                         await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
                     }
 
                     await Promise.all(pendingData.items.map(item => setDoc(doc(dataRef, String(item.id)), item)));
                 } else {
-                    const filteredExistingData = data.filter(d => !overlaps.includes(`${d.school}|${d.period}`));
+                    const filteredExistingData = data.filter(d => !overlaps.includes(`${d.school}|${d.grade}|${d.period}`));
                     saveLocalData([...filteredExistingData, ...pendingData.items]);
                 }
                 setPendingData(null);
@@ -687,15 +700,15 @@
                 });
             };
 
-            const deleteSpecificExam = async (school, period) => {
-                if (!window.confirm(`[${school} - ${period}] 데이터를 삭제하시겠습니까?`)) return;
-                const idsToDelete = data.filter(d => d.school === school && d.period === period).map(d => d.id);
+            const deleteSpecificExam = async (school, grade, period) => {
+                if (!window.confirm(`[${school} - ${grade} - ${period}] 데이터를 삭제하시겠습니까?`)) return;
+                const idsToDelete = data.filter(d => d.school === school && d.grade === grade && d.period === period).map(d => d.id);
                 if (isCloud && user) {
                     const { doc, deleteDoc } = fbLibs.fs;
                     const dataRef = getCollectionRef(firebaseDb);
                     await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
                 } else {
-                    saveLocalData(data.filter(d => !(d.school === school && d.period === period)));
+                    saveLocalData(data.filter(d => !(d.school === school && d.grade === grade && d.period === period)));
                 }
             };
 
@@ -712,6 +725,10 @@
                     setShowManageModal(false);
                 }
             };
+
+            // 💡 [새로 추가된 로직] 타이틀 생성을 위한 헬퍼 변수
+            const titleGrade = filters.grade !== '전체' ? filters.grade : '';
+            const titlePeriod = filters.period !== '전체' ? filters.period : '';
 
             return (
                 <div className="min-h-screen bg-[#f8fafc] font-sans text-slate-800 relative font-bold"
@@ -785,9 +802,9 @@
                                                     <span className={`text-[9px] px-1.5 py-0.5 rounded shadow-sm ${exam.type === '중학교' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{exam.type}</span>
                                                     {exam.school}
                                                 </div>
-                                                <div className="text-slate-500 text-sm mt-1">{exam.period} ({exam.count}Qs)</div>
+                                                <div className="text-slate-500 text-sm mt-1">{exam.grade} | {exam.period} ({exam.count}Qs)</div>
                                             </div>
-                                            <button onClick={() => deleteSpecificExam(exam.school, exam.period)} className="p-2 text-red-400 hover:bg-red-50 rounded-full transition-all shadow-sm"><Icon name="trash-2" size={20} /></button>
+                                            <button onClick={() => deleteSpecificExam(exam.school, exam.grade, exam.period)} className="p-2 text-red-400 hover:bg-red-50 rounded-full transition-all shadow-sm"><Icon name="trash-2" size={20} /></button>
                                         </div>
                                     )) : <div className="text-center py-10 text-slate-400 font-bold text-xl">등록된 데이터가 없습니다.</div>}
                                 </div>
@@ -881,7 +898,7 @@
                             <select 
                                 className="px-3 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-[11px] font-bold text-indigo-700 focus:outline-none shadow-sm cursor-pointer"
                                 value={filters.schoolType || '고등학교'}
-                                onChange={(e) => setFilters({ schoolType: e.target.value, school: [], period: '전체', majorUnit: '전체' })}
+                                onChange={(e) => setFilters({ schoolType: e.target.value, school: [], grade: '전체', period: '전체', majorUnit: '전체' })}
                             >
                                 <option value="고등학교">🏫 고등학교</option>
                                 <option value="중학교">🎒 중학교</option>
@@ -894,22 +911,27 @@
                                 <div className="absolute top-full left-0 w-48 bg-white border shadow-xl rounded-lg mt-1 p-2 z-50 max-h-[300px] overflow-y-auto custom-scroll">
                                     {options.school.map(opt => (
                                         <label key={opt} className="flex items-center gap-2 p-1 hover:bg-indigo-50 rounded cursor-pointer font-bold">
-                                            {/* 💡 [변경됨] 학교 선택 변경 시 필터(시기, 단원)를 '전체'로 안전하게 초기화합니다. */}
                                             <input type="checkbox" checked={filters.school.includes(opt)} onChange={() => {
                                             setFilters(prev => {
                                                 let next = [...prev.school];
                                                 if(next.includes(opt)) next = next.filter(s => s !== opt);
                                                 else next.push(opt);
-                                                return {...prev, school: next, period: '전체', majorUnit: '전체'};
+                                                return {...prev, school: next, grade: '전체', period: '전체', majorUnit: '전체'};
                                             });
                                         }} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[10px]">{opt}</span></label>
                                     ))}
                                     {options.school.length === 0 && <div className="text-[10px] text-slate-400 p-2 text-center font-bold">등록된 학교가 없습니다.</div>}
                                 </div>
                             </details>
-                            {['period', 'majorUnit'].map((key) => (
-                                <select key={key} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold focus:outline-none text-slate-600 shadow-sm" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value }))}>
-                                    <option value="전체">{key === 'period' ? '시기' : '단원'}</option>
+
+                            {/* 💡 [수정됨] 드롭다운 연쇄 변경(학년 선택 등) 추가 */}
+                            {[
+                                { key: 'grade', label: '학년', reset: { period: '전체', majorUnit: '전체' } },
+                                { key: 'period', label: '시기', reset: { majorUnit: '전체' } },
+                                { key: 'majorUnit', label: '단원', reset: {} }
+                            ].map(({ key, label, reset }) => (
+                                <select key={key} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold focus:outline-none text-slate-600 shadow-sm" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value, ...reset }))}>
+                                    <option value="전체">{label}</option>
                                     {options[key].filter(o=>o!=='전체').map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                 </select>
                             ))}
@@ -936,8 +958,12 @@
                                                 <div className="w-full flex flex-wrap justify-center items-start">
                                                     {chartRenderList.map((key) => {
                                                         const pieData = unitDistribution.map((item, i) => ({ name: item.unit, value: isComparing ? (item[key]?.total || 0) : (item.single?.total || 0), color: UNIT_COLORS[i % UNIT_COLORS.length] })).filter(d => d.value > 0);
-                                                        const title = isComparing ? key : filters.school[0];
-                                                        return <DonutChartSVG key={key} data={pieData} title={title} totalQuestions={pieData.reduce((s,c)=>s+c.value,0)} />;
+                                                        // 💡 [수정됨] 차트 제목에 학교 이름, 학년, 시기 모두 표시
+                                                        const chartTitle = isComparing 
+                                                            ? `${key} ${titleGrade} ${titlePeriod}`.trim().replace(/\s+/g, ' ') 
+                                                            : `${filters.school[0]} ${titleGrade} ${titlePeriod}`.trim().replace(/\s+/g, ' ');
+                                                        
+                                                        return <DonutChartSVG key={key} data={pieData} title={chartTitle} totalQuestions={pieData.reduce((s,c)=>s+c.value,0)} />;
                                                     })}
                                                 </div>
                                             </div>
@@ -975,8 +1001,9 @@
                                     {activeTab === 'level-count' && (
                                         <div className="flex flex-col items-center w-full p-4 min-h-[550px] justify-center relative">
                                             <div className="flex flex-col items-center mb-12 gap-2">
+                                                {/* 💡 [수정됨] 제목에 학교, 학년, 시기 모두 표시 */}
                                                 <div className="text-[24px] font-bold text-slate-800 text-center tracking-tight">
-                                                    {filters.school.join(', ')} {filters.period !== '전체' ? filters.period : '전체 시기'}
+                                                    {filters.school.join(', ')} {filters.grade !== '전체' ? filters.grade : '전체 학년'} {filters.period !== '전체' ? filters.period : '전체 시기'}
                                                 </div>
                                                 <div className="text-[16px] font-bold text-indigo-900 flex items-center gap-2">
                                                     <Icon name="activity" size={20} className="text-emerald-500" /> [전체 문항대비 난이도비율]
@@ -1044,9 +1071,6 @@
                                     {activeTab === 'school-diff' && (
                                         <div className="flex flex-col items-center w-full p-4 min-h-[460px] justify-center relative">
                                             <div className="flex flex-col items-center justify-center gap-3 mb-8 w-full">
-                                                <div className="text-[24px] font-bold text-slate-800 text-center tracking-tight">
-                                                    {filters.period !== '전체' ? filters.period : '전체 시기'}
-                                                </div>
                                                 <div className="flex items-center gap-4">
                                                     <div className="text-[16px] font-bold text-indigo-900 flex items-center gap-2">
                                                         <Icon name="school" size={20} className="text-indigo-500" /> 학교별 종합 난이도 분포
@@ -1064,9 +1088,15 @@
                                                     
                                                     return (
                                                         <div key={row.school} className="min-w-[200px] max-w-[200px] bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm hover:border-indigo-200 transition-colors flex-shrink-0">
-                                                            <div className="flex items-baseline justify-center gap-1 mb-4 w-full">
-                                                                <span className="font-bold text-[14px] text-slate-800 truncate">{row.school}</span>
-                                                                <span className="text-[13px] font-bold text-black">({row.total}문항)</span>
+                                                            {/* 💡 [수정됨] 학교 정보 두 줄 표시: 학교(문항) / 학년 시기 */}
+                                                            <div className="flex flex-col items-center justify-center gap-1 mb-4 w-full">
+                                                                <div className="flex items-baseline justify-center gap-1 w-full">
+                                                                    <span className="font-bold text-[14px] text-slate-800 truncate">{row.school}</span>
+                                                                    <span className="text-[13px] font-bold text-black">({row.total}문항)</span>
+                                                                </div>
+                                                                <div className="text-[11px] font-bold text-slate-500">
+                                                                    {filters.grade !== '전체' ? filters.grade : '전체 학년'} {filters.period !== '전체' ? filters.period : '전체 시기'}
+                                                                </div>
                                                             </div>
                                                             
                                                             <div className="relative w-full h-[180px] border-b-2 border-slate-50 pb-0 px-1 flex items-end justify-center gap-1.5 mt-2">
@@ -1111,9 +1141,11 @@
 
                         <section className="bg-white rounded-3xl premium-shadow border border-slate-100 overflow-hidden mt-1">
                             <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 text-slate-900">
+                                {/* 💡 [수정됨] 상세 문항 리스트 제목에 학교, 학년, 시기 모두 표시 */}
                                 <h3 className="text-[14px] font-bold flex items-center gap-2">
                                     <Icon name="list" size={18} className="text-slate-400" />
                                     {filters.school.length > 0 ? `[${filters.school.join(', ')}] ` : ''}
+                                    {filters.grade !== '전체' ? `[${filters.grade}] ` : ''}
                                     {filters.period !== '전체' ? `[${filters.period}] ` : ''}
                                     상세 문항 리스트
                                 </h3>
