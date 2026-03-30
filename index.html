@@ -42,6 +42,7 @@
     <script type="text/babel" data-type="module">
         const { useState, useMemo, useRef, useEffect } = window.React;
 
+        // Firebase 설정 (환경 변수 또는 기본값)
         const myFirebaseConfig = {
             apiKey: "AIzaSyAfM4dIVjANychGT2798HTEQvwSxXRRWyQ",
             authDomain: "mathkind-142d4.firebaseapp.com",
@@ -52,7 +53,7 @@
         };
 
         const apiKey = ""; 
-        // 💡 새로 발급받은 정상 작동 API 키
+        // 💡 선생님의 새로운 API 키 적용
         const INITIAL_MY_GEMINI_KEY = "AIzaSyBLq1VoY14mqAL871gx-htSzVGsI7hAw6c";
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -191,16 +192,13 @@
             const [isAnalyzing, setIsAnalyzing] = useState(false);
             
             const [stagedImages, setStagedImages] = useState([]);
-            
             const [customApiKey, setCustomApiKey] = useState(INITIAL_MY_GEMINI_KEY);
             
             const processFileRef = useRef();
 
-            // 💡 [핵심 해결 영역] 브라우저에 저장된 옛날 고장난 키를 완전히 무시하고, 무조건 새 키로 덮어씌웁니다.
+            // 💡 브라우저에 저장된 옛날 고장난 키를 완전히 무시하고, 무조건 새 키로 강제 업데이트
             useEffect(() => {
-                // 기존 잘못된 캐시 완전 삭제
                 localStorage.removeItem('my_gemini_api_key');
-                // 무조건 새 키 적용
                 setCustomApiKey(INITIAL_MY_GEMINI_KEY);
             }, []);
 
@@ -264,7 +262,7 @@
                                 }
                                 authLib.onAuthStateChanged(firebaseAuth, (u) => { setUser(u || {uid:'anonymous'}); });
                             } catch(authErr) {
-                                console.warn("익명 로그인 실패. Firestore 보안규칙이 'public'이면 정상 작동합니다.");
+                                console.warn("익명 로그인 실패.");
                                 setUser({uid:'anonymous'});
                             }
                         } catch (e) { 
@@ -284,7 +282,7 @@
                         const fetchedData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
                         setData(normalizeDataList(fetchedData));
                     }, (error) => {
-                        console.error("Firestore 읽기 권한이 없습니다. Firebase 규칙을 확인해주세요.", error);
+                        console.error("Firestore 읽기 권한이 없습니다.", error);
                     });
                     return () => unsubscribe();
                 }
@@ -319,31 +317,17 @@
                 }
 
                 const gradeOptions = ['전체', ...new Set(relevantData.map(d => d.grade))].filter(g => g && g !== '-').sort();
-
-                if (filters.grade !== '전체') {
-                    relevantData = relevantData.filter(d => d.grade === filters.grade);
-                }
+                if (filters.grade !== '전체') relevantData = relevantData.filter(d => d.grade === filters.grade);
 
                 const periodOptions = ['전체', ...new Set(relevantData.map(d => d.period))].filter(p => p).sort();
-
-                if (filters.period !== '전체') {
-                    relevantData = relevantData.filter(d => d.period === filters.period);
-                }
+                if (filters.period !== '전체') relevantData = relevantData.filter(d => d.period === filters.period);
 
                 const majorUnitOptions = ['전체', ...new Set(relevantData.map(d => d.majorUnit))];
 
-                return {
-                    school: currentTypeSchools.sort(),
-                    grade: gradeOptions,
-                    period: periodOptions,
-                    majorUnit: majorUnitOptions
-                };
+                return { school: currentTypeSchools.sort(), grade: gradeOptions, period: periodOptions, majorUnit: majorUnitOptions };
             }, [data, filters.schoolType, filters.school, filters.grade, filters.period]);
 
-            const activeSchools = useMemo(() => {
-                return filters.school;
-            }, [filters.school]);
-
+            const activeSchools = useMemo(() => filters.school, [filters.school]);
             const isComparing = filters.school.length > 1;
             const chartRenderList = useMemo(() => isComparing ? activeSchools : ['single'], [isComparing, activeSchools]);
             const totalQuestionsAnalyzed = filteredData.length;
@@ -403,7 +387,6 @@
                     const sData = filteredData.filter(d => d.school === school);
                     const total = sData.length;
                     const diffCounts = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0 };
-                    
                     if (total > 0) {
                         sData.forEach(d => {
                             const m = String(d.difficulty || '').match(/[1-8]/);
@@ -435,32 +418,12 @@
                   .sort((a, b) => a.type.localeCompare(b.type) || a.school.localeCompare(b.school));
             }, [data]);
 
-            useEffect(() => {
-                const handleGlobalPaste = async (e) => {
-                    const items = e.clipboardData?.items;
-                    if (!items) return;
-                    for (let i = 0; i < items.length; i++) {
-                        if (items[i].type.indexOf('image') !== -1) {
-                            const blob = items[i].getAsFile();
-                            if (blob) {
-                                const ext = items[i].type.split('/')[1] || 'png';
-                                const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: items[i].type });
-                                if (processFileRef.current) processFileRef.current(file);
-                                e.preventDefault();
-                            }
-                        }
-                    }
-                };
-                window.addEventListener('paste', handleGlobalPaste);
-                return () => window.removeEventListener('paste', handleGlobalPaste);
-            }, []);
-
             const analyzeStagedImagesWithAI = async () => {
                 if(stagedImages.length === 0) return;
                 
                 const isExternalEnv = typeof __app_id === 'undefined';
-                
                 const activeKey = isExternalEnv ? customApiKey : apiKey;
+                // 💡 깃허브 등 외부 환경에서는 표준 모델명 'gemini-1.5-flash'를 사용하여 호환성 극대화
                 const modelName = isExternalEnv ? "gemini-1.5-flash" : "gemini-2.5-flash-preview-09-2025";
 
                 if(isExternalEnv && (!activeKey || activeKey.trim() === "")) { 
@@ -551,13 +514,9 @@
                                 const formattedData = parsed.items.map((item, i) => {
                                     let extractedSchool = String(item.school || '미상').trim();
                                     let extractedPeriod = String(item.period || '미상').trim().replace(/년/g, '').trim();
-                                    
                                     if (['센텀중', '해강중', '해운대중'].some(s => extractedSchool.includes(s))) {
-                                        if (!extractedPeriod.includes('기말') && !extractedPeriod.includes('중간')) {
-                                            extractedPeriod = extractedPeriod + ' 기말';
-                                        }
+                                        if (!extractedPeriod.includes('기말') && !extractedPeriod.includes('중간')) extractedPeriod = extractedPeriod + ' 기말';
                                     }
-
                                     return {
                                         id: Date.now() + i + Math.random(),
                                         period: extractedPeriod,
@@ -589,15 +548,8 @@
                         setStagedImages([]); 
                     }
                 } catch (error) {
-                    console.error("AI 분석 중 실제 발생한 에러:", error);
-                    
-                    if (error.message.includes("not found") || error.message.includes("API version v1beta")) {
-                        alert(`[API 키 권한 오류]\n현재 등록된 API 키로는 Gemini 모델에 접근할 수 없습니다.\n\n해결 방법:\n1. aistudio.google.com/app/apikey 에 접속합니다.\n2. 새로운 API 키를 생성합니다.\n3. 우측 상단의 [데이터 관리/삭제] 창에서 새로운 키를 입력 후 저장해주세요.`);
-                    } else if (error.message.includes("API key not valid")) {
-                        alert(`[API 키 오류]\n입력하신 API 키가 유효하지 않습니다. 설정 창에서 정확히 복사되었는지 확인해주세요.`);
-                    } else {
-                        alert(`AI 분석 오류: ${error.message}`);
-                    }
+                    console.error("AI 분석 실제 에러:", error);
+                    alert(`[API 에러 발생]\n\n원인: ${error.message}\n\n조치: API 키 발급 사이트에서 키가 활성 상태인지 확인해주세요.`);
                     setStagedImages([]); 
                 } finally {
                     setIsAnalyzing(false);
@@ -606,14 +558,12 @@
 
             const processFile = async (file) => {
                 if (!file) return;
-                
                 if (file.type.startsWith('image/')) {
                     const dataUrl = await fileToBase64(file);
                     setStagedImages(prev => [...prev, { id: Date.now() + Math.random(), file, dataUrl: `data:${file.type};base64,${dataUrl}` }]);
                     if(fileInputRef.current) fileInputRef.current.value = '';
                     return;
                 }
-
                 const reader = new FileReader();
                 reader.onload = (evt) => {
                     try {
@@ -628,7 +578,6 @@
                             qNum: findIdx(['문항번호', '번호']), type: findIdx(['문항유형', '유형', '문제유형']), major: findIdx(['대단원', '단원']),
                             minor: findIdx(['소단원']), diff: findIdx(['난이도'])
                         };
-                        
                         const newData = json.slice(headerIdx + 1).filter(row => {
                             if (!row || row.length === 0) return false;
                             const sName = String(row[idxMap.school] || '').trim();
@@ -637,36 +586,20 @@
                         }).map((cols, i) => {
                             const rawDiff = String(cols[idxMap.diff] || '4');
                             const diffNum = rawDiff.match(/[1-8]/)?.[0] || '4'; 
-                            
                             let extSchool = String(cols[idxMap.school] || '미상').trim();
                             let extPeriod = String(cols[idxMap.period] || '미상').trim().replace(/년/g, '').trim(); 
-                            
                             if (['센텀중', '해강중', '해운대중'].some(s => extSchool.includes(s))) {
-                                if (!extPeriod.includes('기말') && !extPeriod.includes('중간')) {
-                                    extPeriod = extPeriod + ' 기말';
-                                }
+                                if (!extPeriod.includes('기말') && !extPeriod.includes('중간')) extPeriod = extPeriod + ' 기말';
                             }
-
                             return {
-                                id: Date.now() + i + Math.random(), 
-                                period: extPeriod, 
-                                school: extSchool,
-                                grade: String(cols[idxMap.grade] || '-').trim(),
-                                subject: String(cols[idxMap.subject] || '-').trim(),
-                                questionNum: String(cols[idxMap.qNum] || '-').trim(), 
-                                type: String(cols[idxMap.type] || '-').trim(),
-                                majorUnit: String(cols[idxMap.major] || '단원미지정').trim(), 
-                                minorUnit: String(cols[idxMap.minor] || '-').trim(),
+                                id: Date.now() + i + Math.random(), period: extPeriod, school: extSchool,
+                                grade: String(cols[idxMap.grade] || '-').trim(), subject: String(cols[idxMap.subject] || '-').trim(),
+                                questionNum: String(cols[idxMap.qNum] || '-').trim(), type: String(cols[idxMap.type] || '-').trim(),
+                                majorUnit: String(cols[idxMap.major] || '단원미지정').trim(), minorUnit: String(cols[idxMap.minor] || '-').trim(),
                                 difficulty: diffNum
                             };
                         });
-                        
-                        newData.sort((a, b) => {
-                            const numA = parseInt(String(a.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
-                            const numB = parseInt(String(b.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
-                            return numA - numB;
-                        });
-
+                        newData.sort((a, b) => (parseInt(a.questionNum) || 0) - (parseInt(b.questionNum) || 0));
                         setPendingData({ filename: file.name, items: newData, isAiExtracted: false });
                     } catch (error) { alert("엑셀 파일 분석 오류: " + error.message); }
                     if(fileInputRef.current) fileInputRef.current.value = '';
@@ -674,31 +607,24 @@
                 reader.readAsArrayBuffer(file);
             };
 
-            useEffect(() => {
-                processFileRef.current = processFile;
-            });
+            useEffect(() => { processFileRef.current = processFile; });
 
             const confirmUpload = async () => {
                 const uploadedExams = [...new Set(pendingData.items.map(item => `${item.school}|${item.grade}|${item.period}`))];
                 const existingExams = new Set(data.map(d => `${d.school}|${d.grade}|${d.period}`));
                 const overlaps = uploadedExams.filter(exam => existingExams.has(exam));
-
                 if (overlaps.length > 0) {
-                    if (!window.confirm("동일한 학교, 학년 및 시기의 데이터가 이미 존재합니다.\n중복을 방지하기 위해 기존 데이터를 지우고 새 데이터로 덮어쓰시겠습니까?")) {
-                        setPendingData(null);
-                        return; 
+                    if (!window.confirm("동일한 학교, 학년 및 시기의 데이터가 이미 존재합니다.\n덮어쓰시겠습니까?")) {
+                        setPendingData(null); return; 
                     }
                 }
-
                 if (isCloud && user) {
                     const { doc, setDoc, deleteDoc } = fbLibs.fs;
                     const dataRef = getCollectionRef(firebaseDb);
-
                     if (overlaps.length > 0) {
                         const idsToDelete = data.filter(d => overlaps.includes(`${d.school}|${d.grade}|${d.period}`)).map(d => d.id);
                         await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
                     }
-
                     await Promise.all(pendingData.items.map(item => setDoc(doc(dataRef, String(item.id)), item)));
                 } else {
                     const filteredExistingData = data.filter(d => !overlaps.includes(`${d.school}|${d.grade}|${d.period}`));
@@ -734,9 +660,7 @@
                         const dataRef = getCollectionRef(firebaseDb);
                         const snap = await getDocs(dataRef);
                         await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
-                    } else {
-                        saveLocalData([]);
-                    }
+                    } else saveLocalData([]);
                     setShowManageModal(false);
                 }
             };
@@ -758,14 +682,12 @@
                         <div className="fixed bottom-6 right-6 bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 z-[150] w-80 flex flex-col max-h-[80vh]">
                             <div className="flex justify-between items-center mb-4">
                                 <h3 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
-                                    <Icon name="image" size={20} className="text-indigo-500" />
-                                    대기중인 이미지 ({stagedImages.length})
+                                    <Icon name="image" size={20} className="text-indigo-500" /> 대기중인 이미지 ({stagedImages.length})
                                 </h3>
                                 <button onClick={() => setStagedImages([])} className="p-1 rounded-full hover:bg-slate-100 text-slate-400 transition-colors">
                                     <Icon name="x" size={20} />
                                 </button>
                             </div>
-                            
                             <div className="flex-1 overflow-y-auto custom-scroll flex flex-col gap-3 mb-4 pr-2">
                                 {stagedImages.map((img, idx) => (
                                     <div key={img.id} className="relative group rounded-lg overflow-hidden border border-slate-200 shadow-sm">
@@ -778,10 +700,8 @@
                                     </div>
                                 ))}
                             </div>
-
                             <button onClick={analyzeStagedImagesWithAI} className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-indigo-700 transition-transform active:scale-95 flex items-center justify-center gap-2">
-                                <Icon name="sparkles" size={20} />
-                                {stagedImages.length}장 일괄 AI 분석
+                                <Icon name="sparkles" size={20} /> {stagedImages.length}장 일괄 AI 분석
                             </button>
                         </div>
                     )}
@@ -790,7 +710,6 @@
                         <div className="fixed inset-0 z-[300] bg-slate-900/80 flex flex-col items-center justify-center text-white backdrop-blur-sm">
                             <div className="loader mb-6"></div>
                             <h2 className="text-2xl font-bold tracking-tight">AI가 시험지 이미지 {stagedImages.length}장을 분석하고 있습니다...</h2>
-                            <p className="text-slate-300 mt-2 font-medium">표, 그래프, 문제 구조를 파악하는 중입니다.</p>
                         </div>
                     )}
 
@@ -808,31 +727,6 @@
                                     <h2 className="text-2xl font-bold flex items-center gap-2"><Icon name="settings" className="text-indigo-500"/> 데이터 관리</h2>
                                     <button onClick={() => setShowManageModal(false)}><Icon name="x-circle" size={28} className="text-slate-400"/></button>
                                 </div>
-
-                                {typeof __app_id === 'undefined' && (
-                                    <div className="mb-6 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
-                                        <label className="block text-sm font-bold text-indigo-900 mb-2">Google Gemini API 키 설정 (GitHub Pages 전용)</label>
-                                        <div className="flex gap-2">
-                                            <input 
-                                                type="password" 
-                                                value={customApiKey} 
-                                                onChange={(e) => setCustomApiKey(e.target.value)} 
-                                                className="flex-1 px-3 py-2 rounded-lg border border-indigo-200 outline-none focus:border-indigo-500 text-sm font-normal" 
-                                                placeholder="AIzaSy..." 
-                                            />
-                                            <button onClick={() => { 
-                                                localStorage.setItem('my_gemini_api_key', customApiKey); 
-                                                alert('API 키가 로컬 저장소에 저장되었습니다.'); 
-                                            }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700 whitespace-nowrap">
-                                                저장
-                                            </button>
-                                        </div>
-                                        <p className="text-[11px] text-indigo-500 mt-2 font-normal leading-tight">
-                                            * 외부 서버에서는 오류 방지를 위해 <b>Google AI Studio (aistudio.google.com)</b> 에서 직접 발급받은 API 키가 필요합니다.
-                                        </p>
-                                    </div>
-                                )}
-
                                 <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide mb-6">
                                     {uniqueExams.length > 0 ? uniqueExams.map((exam, idx) => (
                                         <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border">
@@ -847,9 +741,9 @@
                                         </div>
                                     )) : <div className="text-center py-10 text-slate-400 font-bold text-xl">등록된 데이터가 없습니다.</div>}
                                 </div>
-                                <div className="flex gap-3">
-                                    <button onClick={handleClearData} className="flex-1 bg-red-50 text-red-600 border-2 border-red-100 font-bold py-3 rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center gap-2"><Icon name="trash-2" size={18} /> 전체 데이터 삭제</button>
-                                    <button onClick={() => setShowManageModal(false)} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl">닫기</button>
+                                <div className="flex gap-3 font-bold">
+                                    <button onClick={handleClearData} className="flex-1 bg-red-50 text-red-600 border-2 border-red-100 py-3 rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center gap-2"><Icon name="trash-2" size={18} /> 전체 데이터 삭제</button>
+                                    <button onClick={() => setShowManageModal(false)} className="flex-1 bg-slate-800 text-white py-3 rounded-xl">닫기</button>
                                 </div>
                             </div>
                         </div>
@@ -859,27 +753,24 @@
                         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4 text-slate-900">
                             <div className="bg-white rounded-2xl p-6 max-w-5xl w-full text-center shadow-2xl flex flex-col max-h-[90vh]">
                                 <Icon name="check-circle" size={48} className="text-emerald-500 mx-auto mb-2 shrink-0" />
-                                <h2 className="text-xl font-bold mb-1 tracking-tight">
-                                    {pendingData.isAiExtracted ? "AI 이미지 분석 완료" : "데이터 준비 완료"}
-                                </h2>
+                                <h2 className="text-xl font-bold mb-1 tracking-tight">AI 이미지 분석 완료</h2>
                                 <p className="font-bold text-slate-500 mb-4 text-sm shrink-0">
                                     <span className="text-indigo-600 underline">{pendingData.items.length}개</span>의 문항을 찾았습니다. 검수 후 적용해주세요.
                                     <br/><span className="text-emerald-600">💡 아래 표의 글자를 클릭하면 직접 바로 수정할 수 있습니다.</span>
                                 </p>
-
                                 <div className="flex-1 overflow-auto bg-slate-50 rounded-xl border border-slate-200 mb-6 text-left shadow-inner custom-scroll relative">
                                     <table className="w-full text-[11px] whitespace-nowrap min-w-[800px]">
-                                        <thead className="bg-slate-200/80 text-slate-600 sticky top-0 backdrop-blur-md shadow-sm z-10">
+                                        <thead className="bg-slate-200/80 text-slate-600 sticky top-0 backdrop-blur-md shadow-sm z-10 font-bold">
                                             <tr>
-                                                <th className="px-4 py-2 border-b font-bold">출제시기</th>
-                                                <th className="px-4 py-2 border-b font-bold">학교명</th>
-                                                <th className="px-4 py-2 border-b font-bold">학년</th>
-                                                <th className="px-4 py-2 border-b font-bold">과목</th>
-                                                <th className="px-4 py-2 border-b font-bold">문항번호</th>
-                                                <th className="px-4 py-2 border-b text-center font-bold">문항유형</th>
-                                                <th className="px-4 py-2 border-b font-bold">대단원</th>
-                                                <th className="px-4 py-2 border-b font-bold">소단원</th>
-                                                <th className="px-4 py-2 border-b text-center font-bold">난이도</th>
+                                                <th className="px-4 py-2 border-b">출제시기</th>
+                                                <th className="px-4 py-2 border-b">학교명</th>
+                                                <th className="px-4 py-2 border-b">학년</th>
+                                                <th className="px-4 py-2 border-b">과목</th>
+                                                <th className="px-4 py-2 border-b">문항번호</th>
+                                                <th className="px-4 py-2 border-b text-center">문항유형</th>
+                                                <th className="px-4 py-2 border-b">대단원</th>
+                                                <th className="px-4 py-2 border-b">소단원</th>
+                                                <th className="px-4 py-2 border-b text-center">난이도</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 font-bold text-slate-800">
@@ -900,7 +791,7 @@
                                                     <td className="px-2 py-1"><input type="text" value={row.majorUnit} onChange={(e)=>handlePendingChange(idx, 'majorUnit', e.target.value)} className="w-full min-w-[120px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-800 transition-colors"/></td>
                                                     <td className="px-2 py-1"><input type="text" value={row.minorUnit} onChange={(e)=>handlePendingChange(idx, 'minorUnit', e.target.value)} className="w-full min-w-[150px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-500 transition-colors"/></td>
                                                     <td className="px-2 py-1 text-center">
-                                                        <select value={row.difficulty} onChange={(e)=>handlePendingChange(idx, 'difficulty', e.target.value)} className="px-2 py-1 rounded text-[10px] text-white shadow-sm outline-none border border-transparent hover:border-slate-300 cursor-pointer text-center" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] || '#94a3b8' }}>
+                                                        <select value={row.difficulty} onChange={(e)=>handlePendingChange(idx, 'difficulty', e.target.value)} className="px-2 py-1 rounded text-[10px] text-white shadow-sm outline-none border border-transparent hover:border-slate-300 cursor-pointer text-center font-bold" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] || '#94a3b8' }}>
                                                             {DIFF_LEVELS.map(lvl => <option key={lvl} value={lvl} style={{backgroundColor: 'white', color: 'black'}}>{lvl}</option>)}
                                                         </select>
                                                     </td>
@@ -909,7 +800,6 @@
                                         </tbody>
                                     </table>
                                 </div>
-
                                 <div className="flex gap-3 shrink-0">
                                     <button onClick={confirmUpload} className="flex-1 bg-indigo-600 text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-indigo-700 transition-transform active:scale-95 text-lg">이상 없음, DB에 적용하기</button>
                                     <button onClick={() => setPendingData(null)} className="w-1/3 bg-slate-200 font-bold py-3.5 rounded-xl text-slate-600 hover:bg-slate-300 transition-colors">취소</button>
@@ -919,10 +809,10 @@
                     )}
 
                     <div className="max-w-[1800px] mx-auto p-2 space-y-2">
-                        <header className="flex justify-between items-center bg-white py-2 px-6 rounded-2xl premium-shadow border border-slate-100">
+                        <header className="flex justify-between items-center bg-white py-2 px-6 rounded-2xl premium-shadow border border-slate-100 font-bold">
                             <div className="flex items-center gap-3">
-                                <h1 className="text-base font-bold text-slate-800 flex items-center gap-2"><Icon name="file-text" className="text-indigo-600"/> Math Analysis</h1>
-                                <span className="text-slate-400 text-[10px] font-bold border-l pl-3 ml-1 uppercase">{totalUnitsAnalyzed} Units | {totalQuestionsAnalyzed} Qs</span>
+                                <h1 className="text-base text-slate-800 flex items-center gap-2"><Icon name="file-text" className="text-indigo-600"/> Math Analysis</h1>
+                                <span className="text-slate-400 text-[10px] border-l pl-3 ml-1 uppercase">{totalUnitsAnalyzed} Units | {totalQuestionsAnalyzed} Qs</span>
                             </div>
                             <div className="flex items-center gap-2">
                                 <input type="file" accept=".xlsx, .xls, .csv, image/png, image/jpeg, image/jpg" ref={fileInputRef} className="hidden" multiple onChange={(e) => {
@@ -934,15 +824,10 @@
                         </header>
 
                         <section className="bg-white p-2 rounded-2xl premium-shadow border border-slate-100 flex flex-wrap gap-2 items-center">
-                            <select 
-                                className="px-3 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-[11px] font-bold text-indigo-700 focus:outline-none shadow-sm cursor-pointer"
-                                value={filters.schoolType || '고등학교'}
-                                onChange={(e) => setFilters({ schoolType: e.target.value, school: [], grade: '전체', period: '전체', majorUnit: '전체' })}
-                            >
+                            <select className="px-3 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-[11px] font-bold text-indigo-700 focus:outline-none cursor-pointer" value={filters.schoolType} onChange={(e) => setFilters({ schoolType: e.target.value, school: [], grade: '전체', period: '전체', majorUnit: '전체' })}>
                                 <option value="고등학교">🏫 고등학교</option>
                                 <option value="중학교">🎒 중학교</option>
                             </select>
-
                             <details className="relative z-50">
                                 <summary className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold cursor-pointer list-none flex items-center gap-2 text-slate-900 shadow-sm">
                                     학교: {filters.school.length === 0 ? '선택안됨' : `${filters.school.length}개 선택`} <Icon name="chevron-down" size={10}/>
@@ -951,23 +836,18 @@
                                     {options.school.map(opt => (
                                         <label key={opt} className="flex items-center gap-2 p-1 hover:bg-indigo-50 rounded cursor-pointer font-bold">
                                             <input type="checkbox" checked={filters.school.includes(opt)} onChange={() => {
-                                            setFilters(prev => {
-                                                let next = [...prev.school];
-                                                if(next.includes(opt)) next = next.filter(s => s !== opt);
-                                                else next.push(opt);
-                                                return {...prev, school: next, grade: '전체', period: '전체', majorUnit: '전체'};
-                                            });
-                                        }} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[10px]">{opt}</span></label>
+                                                setFilters(prev => {
+                                                    let next = [...prev.school];
+                                                    if(next.includes(opt)) next = next.filter(s => s !== opt);
+                                                    else next.push(opt);
+                                                    return {...prev, school: next, grade: '전체', period: '전체', majorUnit: '전체'};
+                                                });
+                                            }} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[10px]">{opt}</span>
+                                        </label>
                                     ))}
-                                    {options.school.length === 0 && <div className="text-[10px] text-slate-400 p-2 text-center font-bold">등록된 학교가 없습니다.</div>}
                                 </div>
                             </details>
-
-                            {[
-                                { key: 'grade', label: '학년', reset: { period: '전체', majorUnit: '전체' } },
-                                { key: 'period', label: '시기', reset: { majorUnit: '전체' } },
-                                { key: 'majorUnit', label: '단원', reset: {} }
-                            ].map(({ key, label, reset }) => (
+                            {[{ key: 'grade', label: '학년', reset: { period: '전체', majorUnit: '전체' } }, { key: 'period', label: '시기', reset: { majorUnit: '전체' } }, { key: 'majorUnit', label: '단원', reset: {} }].map(({ key, label, reset }) => (
                                 <select key={key} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold focus:outline-none text-slate-600 shadow-sm" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value, ...reset }))}>
                                     <option value="전체">{label}</option>
                                     {options[key].filter(o=>o!=='전체').map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -984,8 +864,7 @@
                         <div className="bg-white rounded-3xl premium-shadow border border-slate-100 p-2 flex flex-col gap-1">
                             {filters.school.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center min-h-[460px] text-slate-400 font-bold">
-                                    <Icon name="search" size={48} className="mb-4 text-slate-200" />
-                                    학교를 선택하여 분석 데이터를 확인하세요.
+                                    <Icon name="search" size={48} className="mb-4 text-slate-200" /> 학교를 선택하여 분석 데이터를 확인하세요.
                                 </div>
                             ) : (
                                 <>
@@ -996,10 +875,7 @@
                                                 <div className="w-full flex flex-wrap justify-center items-start">
                                                     {chartRenderList.map((key) => {
                                                         const pieData = unitDistribution.map((item, i) => ({ name: item.unit, value: isComparing ? (item[key]?.total || 0) : (item.single?.total || 0), color: UNIT_COLORS[i % UNIT_COLORS.length] })).filter(d => d.value > 0);
-                                                        const chartTitle = isComparing 
-                                                            ? `${key} ${titleGrade} ${titlePeriod}`.trim().replace(/\s+/g, ' ') 
-                                                            : `${filters.school[0]} ${titleGrade} ${titlePeriod}`.trim().replace(/\s+/g, ' ');
-                                                        
+                                                        const chartTitle = isComparing ? `${key} ${titleGrade} ${titlePeriod}`.trim() : `${filters.school[0]} ${titleGrade} ${titlePeriod}`.trim();
                                                         return <DonutChartSVG key={key} data={pieData} title={chartTitle} totalQuestions={pieData.reduce((s,c)=>s+c.value,0)} />;
                                                     })}
                                                 </div>
@@ -1013,19 +889,15 @@
                                                             <div key={idx} className="flex flex-col items-center h-full justify-end min-w-[50px] max-w-[80px] w-full relative">
                                                                 <div className="w-10 h-full bg-slate-50 rounded-full inner-capsule flex flex-col justify-end p-1 overflow-hidden shadow-sm">
                                                                     <div className="w-full h-full flex flex-col justify-end rounded-full overflow-hidden">
-                                                                    {DIFF_LEVELS.slice().reverse().map(diff => {
-                                                                        const count = isComparing ? item[activeSchools[0]]?.[diff] : item.single?.[diff];
-                                                                        if (!count) return null;
-                                                                        return <div key={diff} className="w-full flex items-center justify-center border-b border-white/20 last:border-b-0 relative shadow-sm" style={{ height: `${count/7*100}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}><span className="text-[10px] text-white font-bold">{count}</span></div>
-                                                                    })}
+                                                                        {DIFF_LEVELS.slice().reverse().map(diff => {
+                                                                            const count = isComparing ? item[activeSchools[0]]?.[diff] : item.single?.[diff];
+                                                                            if (!count) return null;
+                                                                            return <div key={diff} className="w-full flex items-center justify-center border-b border-white/20 last:border-b-0 relative shadow-sm" style={{ height: `${count/7*100}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}><span className="text-[10px] text-white font-bold">{count}</span></div>
+                                                                        })}
                                                                     </div>
                                                                 </div>
-                                                                <div className="absolute top-[100%] pt-2 left-1/2 -translate-x-1/2 w-[160%] flex flex-col items-center text-[13px] font-bold text-slate-700 text-center leading-tight tracking-tight">
-                                                                    {item.unit.split(' ').map((w, i) => (
-                                                                        <React.Fragment key={i}>
-                                                                            {w}<br/>
-                                                                        </React.Fragment>
-                                                                    ))}
+                                                                <div className="absolute top-[100%] pt-2 left-1/2 -translate-x-1/2 w-[160%] flex flex-col items-center text-[11px] font-bold text-slate-700 text-center leading-tight tracking-tight">
+                                                                    {item.unit.split(' ').map((w,i)=><React.Fragment key={i}>{w}<br/></React.Fragment>)}
                                                                 </div>
                                                             </div>
                                                         ))}
@@ -1034,68 +906,51 @@
                                             </div>
                                         </div>
                                     )}
-
                                     {activeTab === 'level-count' && (
                                         <div className="flex flex-col items-center w-full p-4 min-h-[550px] justify-center relative">
-                                            <div className="flex flex-col items-center mb-12 gap-2">
-                                                <div className="text-[24px] font-bold text-slate-800 text-center tracking-tight">
+                                            <div className="flex flex-col items-center mb-12 gap-2 text-center">
+                                                <div className="text-[24px] font-bold text-slate-800 tracking-tight">
                                                     {filters.school.join(', ')} {filters.grade !== '전체' ? filters.grade : '전체 학년'} {filters.period !== '전체' ? filters.period : '전체 시기'}
                                                 </div>
                                                 <div className="text-[16px] font-bold text-indigo-900 flex items-center gap-2">
                                                     <Icon name="activity" size={20} className="text-emerald-500" /> [전체 문항대비 난이도비율]
                                                 </div>
                                             </div>
-                                            
                                             <div className="flex flex-row w-full max-w-[60%] mx-auto relative h-[350px]">
                                                 <div className="absolute left-[-60px] top-0 bottom-12 w-14 border-r-2 border-slate-300 text-[11px] font-bold text-slate-400 z-10">
                                                     <span className="absolute top-0 right-3 -translate-y-1/2">50%</span>
                                                     <span className="absolute top-1/2 right-3 -translate-y-1/2">25%</span>
                                                     <span className="absolute bottom-0 right-3 translate-y-1/2">0%</span>
                                                 </div>
-
                                                 <div className="flex-1 relative flex flex-col">
                                                     <div className="absolute top-0 left-0 w-full border-t border-dashed border-slate-200 z-0"></div>
                                                     <div className="absolute top-1/2 left-0 w-full border-t border-dashed border-slate-200 z-0"></div>
-                                                    
                                                     <div className="absolute bottom-12 left-0 right-0 h-[2px] bg-slate-300 z-20"></div>
-                                                    
                                                     <div className="flex-1 w-full grid grid-cols-8 gap-0 relative z-10 items-end mb-12">
                                                         {difficultyDistribution.map((item, idx) => {
                                                             const count = isComparing ? (item[activeSchools[0]] || 0) : (item.count || 0);
                                                             const total = isComparing ? (schoolTotals[activeSchools[0]] || 1) : (schoolTotals.single || 1);
                                                             const actualPct = total > 0 ? (count / total) * 100 : 0;
                                                             const visualPct = Math.min((actualPct / 50) * 100, 100); 
-                                                            const pathData = "M 0 100 C 20 100, 35 0, 50 0 C 65 0, 80 100, 100 100 Z";
-                                                            
                                                             return (
                                                                 <div key={idx} className="flex flex-col items-center justify-end h-full w-full relative">
                                                                     <div className="w-full flex flex-col justify-end items-center relative transition-all duration-700" style={{ height: `${Math.max(visualPct, 1)}%` }}>
-                                                                        {actualPct > 0 && (
-                                                                            <span className="absolute -top-7 text-[12px] font-bold text-slate-700 bg-white/90 px-1.5 py-0.5 rounded border border-slate-200 shadow-sm z-30 whitespace-nowrap">
-                                                                                {actualPct.toFixed(1)}%
-                                                                            </span>
-                                                                        )}
+                                                                        {actualPct > 0 && <span className="absolute -top-7 text-[12px] font-bold text-slate-700 bg-white/90 px-1.5 py-0.5 rounded border border-slate-200 shadow-sm z-30 whitespace-nowrap">{actualPct.toFixed(1)}%</span>}
                                                                         {actualPct > 0 && (
                                                                             <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full drop-shadow-2xl overflow-visible">
-                                                                                <path d={pathData} fill={DIFFICULTY_COLORS[item.level]} fillOpacity="0.9" className="transition-all hover:brightness-105" />
+                                                                                <path d="M 0 100 C 20 100, 35 0, 50 0 C 65 0, 80 100, 100 100 Z" fill={DIFFICULTY_COLORS[item.level]} fillOpacity="0.9" className="transition-all hover:brightness-105" />
                                                                             </svg>
                                                                         )}
-                                                                        {actualPct > 0 && (
-                                                                            <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-                                                                                <span className="text-white font-bold text-base drop-shadow-lg">{count}</span>
-                                                                            </div>
-                                                                        )}
+                                                                        {actualPct > 0 && <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none font-bold text-white text-base drop-shadow-lg">{count}</div>}
                                                                     </div>
                                                                 </div>
-                                                            );
+                                                            )
                                                         })}
                                                     </div>
-                                                    <div className="absolute bottom-0 left-0 right-0 h-12 grid grid-cols-8 gap-0">
+                                                    <div className="absolute bottom-0 left-0 right-0 h-12 grid grid-cols-8 gap-0 font-bold">
                                                         {difficultyDistribution.map((item, idx) => (
-                                                            <div key={`label-${idx}`} className="flex flex-col items-center justify-center">
-                                                                <div className="w-[90%] text-[10px] md:text-[11px] font-bold text-slate-800 p-1 rounded text-center leading-tight shadow-sm border-t-4 bg-white" style={{ borderTopColor: DIFFICULTY_COLORS[item.level] }}>
-                                                                    {DIFF_LABELS[item.level]}
-                                                                </div>
+                                                            <div key={idx} className="flex flex-col items-center justify-center">
+                                                                <div className="w-[90%] text-[10px] text-slate-800 p-1 rounded text-center leading-tight shadow-sm border-t-4 bg-white" style={{ borderTopColor: DIFFICULTY_COLORS[item.level] }}>{DIFF_LABELS[item.level]}</div>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -1103,73 +958,44 @@
                                             </div>
                                         </div>
                                     )}
-
                                     {activeTab === 'school-diff' && (
                                         <div className="flex flex-col items-center w-full p-4 min-h-[460px] justify-center relative">
-                                            <div className="flex flex-col items-center justify-center gap-3 mb-8 w-full">
-                                                <div className="text-[24px] font-bold text-slate-800 text-center tracking-tight">
-                                                    {filters.period !== '전체' ? filters.period : '전체 시기'}
-                                                </div>
+                                            <div className="flex flex-col items-center gap-3 mb-8 w-full">
+                                                <div className="text-[24px] font-bold text-slate-800 tracking-tight">{filters.period !== '전체' ? filters.period : '전체 시기'}</div>
                                                 <div className="flex items-center gap-4">
-                                                    <div className="text-[16px] font-bold text-indigo-900 flex items-center gap-2">
-                                                        <Icon name="school" size={20} className="text-indigo-500" /> 학교별 종합 난이도 분포
-                                                    </div>
-                                                    <label className="flex items-center gap-1.5 cursor-pointer bg-orange-50 px-2.5 py-1 rounded-md border border-orange-200 hover:bg-orange-100 transition-colors">
-                                                        <input type="checkbox" checked={showHighDiff} onChange={(e) => setShowHighDiff(e.target.checked)} className="rounded text-orange-600 w-3.5 h-3.5" />
-                                                        <span className="text-[12px] font-bold text-orange-700">고난도</span>
+                                                    <div className="text-[16px] font-bold text-indigo-900 flex items-center gap-2"><Icon name="school" size={20} className="text-indigo-500" /> 학교별 종합 난이도 분포</div>
+                                                    <label className="flex items-center gap-1.5 cursor-pointer bg-orange-50 px-2.5 py-1 rounded-md border border-orange-200 font-bold text-[12px] text-orange-700">
+                                                        <input type="checkbox" checked={showHighDiff} onChange={(e) => setShowHighDiff(e.target.checked)} className="rounded text-orange-600 w-3.5 h-3.5" /> 고난도
                                                     </label>
                                                 </div>
                                             </div>
-                                            <div className="flex gap-6 overflow-x-auto w-full pb-6 custom-scroll justify-start px-4 text-slate-900">
+                                            <div className="flex gap-6 overflow-x-auto w-full pb-6 custom-scroll justify-start px-4">
                                                 {schoolVerticalData.map((row) => {
-                                                    const highDiffCount = ['5', '6', '7', '8'].reduce((sum, lvl) => sum + (row.diffCounts[lvl] || 0), 0);
-                                                    const highDiffPct = row.total > 0 ? (highDiffCount / row.total) * 100 : 0;
-                                                    
+                                                    const highDiffPct = row.total > 0 ? (['5', '6', '7', '8'].reduce((sum, lvl) => sum + (row.diffCounts[lvl] || 0), 0) / row.total) * 100 : 0;
                                                     return (
-                                                        <div key={row.school} className="min-w-[200px] max-w-[200px] bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm hover:border-indigo-200 transition-colors flex-shrink-0">
-                                                            <div className="flex flex-col items-center justify-center gap-1 mb-4 w-full">
-                                                                <div className="flex items-baseline justify-center gap-1 w-full">
-                                                                    <span className="font-bold text-[14px] text-slate-800 truncate">{row.school}</span>
-                                                                    <span className="text-[13px] font-bold text-black">({row.total}문항)</span>
+                                                        <div key={row.school} className="min-w-[200px] max-w-[200px] bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm hover:border-indigo-200 flex-shrink-0">
+                                                            <div className="flex flex-col items-center gap-1 mb-4 w-full">
+                                                                <div className="flex items-baseline gap-1 font-bold">
+                                                                    <span className="text-[14px] text-slate-800 truncate">{row.school}</span>
+                                                                    <span className="text-[13px] text-black">({row.total}문항)</span>
                                                                 </div>
                                                                 <div className="text-[11px] font-bold text-slate-500">
                                                                     {filters.grade !== '전체' ? filters.grade : '전체 학년'} {filters.period !== '전체' ? filters.period : '전체 시기'}
                                                                 </div>
                                                             </div>
-                                                            
-                                                            <div className="relative w-full h-[180px] border-b-2 border-slate-50 pb-0 px-1 flex items-end justify-center gap-1.5 mt-2">
-                                                                {showHighDiff && highDiffPct > 0 && (
-                                                                    <div className="absolute top-0 right-1 -translate-y-1/2 z-30 pointer-events-none">
-                                                                        <span className="text-[14px] font-bold tracking-tighter text-orange-700 bg-orange-50/90 px-2 py-0.5 rounded shadow-sm border border-orange-300 whitespace-nowrap">
-                                                                            고난도 {highDiffPct.toFixed(1).replace('.0', '')}%
-                                                                        </span>
-                                                                    </div>
-                                                                )}
-                                                                <div className="absolute top-0 left-0 w-full border-t border-dashed border-slate-300">
-                                                                    <span className="absolute -top-4 left-0 text-[9px] font-bold text-slate-400">50%</span>
-                                                                </div>
-                                                                <div className="absolute top-1/2 left-0 w-full border-t border-dashed border-slate-200">
-                                                                    <span className="absolute -top-4 left-0 text-[9px] font-bold text-slate-400">25%</span>
-                                                                </div>
-
+                                                            <div className="relative w-full h-[180px] border-b-2 border-slate-50 flex items-end justify-center gap-1.5 mt-2">
+                                                                {showHighDiff && highDiffPct > 0 && <div className="absolute top-0 right-1 -translate-y-1/2 z-30 font-bold text-[14px] tracking-tighter text-orange-700 bg-orange-50/90 px-2 py-0.5 rounded shadow-sm border border-orange-300">고난도 {highDiffPct.toFixed(1).replace('.0', '')}%</div>}
+                                                                <div className="absolute top-0 left-0 w-full border-t border-dashed border-slate-300"><span className="absolute -top-4 left-0 text-[9px] font-bold text-slate-400">50%</span></div>
+                                                                <div className="absolute top-1/2 left-0 w-full border-t border-dashed border-slate-200"><span className="absolute -top-4 left-0 text-[9px] font-bold text-slate-400">25%</span></div>
                                                                 {DIFF_LEVELS.map(diff => {
-                                                                    const count = row.diffCounts[diff] || 0;
-                                                                    const actualPct = row.total > 0 ? (count / row.total) * 100 : 0;
+                                                                    const actualPct = row.total > 0 ? ((row.diffCounts[diff] || 0) / row.total) * 100 : 0;
                                                                     const visualHeight = Math.min((actualPct / 50) * 100, 100); 
-                                                                    return (
-                                                                        <div key={diff} className="flex-1 h-full relative group z-10 flex flex-col justify-end">
-                                                                            <div 
-                                                                                className="w-full transition-all duration-500 hover:brightness-90 shadow-sm border-t border-white/20" 
-                                                                                style={{ height: `${actualPct > 0 ? Math.max(visualHeight, 2) : 0}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}
-                                                                            ></div>
-                                                                        </div>
-                                                                    );
+                                                                    return <div key={diff} className="flex-1 h-full flex flex-col justify-end relative z-10"><div className="w-full transition-all duration-500 shadow-sm border-t border-white/20" style={{ height: `${actualPct > 0 ? Math.max(visualHeight, 2) : 0}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}></div></div>
                                                                 })}
                                                             </div>
                                                         </div>
-                                                    );
+                                                    )
                                                 })}
-                                                {schoolVerticalData.length === 0 && <div className="py-20 text-slate-300 font-bold w-full text-center">데이터를 업로드해주세요.</div>}
                                             </div>
                                         </div>
                                     )}
@@ -1177,54 +1003,33 @@
                             )}
                         </div>
 
-                        <section className="bg-white rounded-3xl premium-shadow border border-slate-100 overflow-hidden mt-1">
+                        <section className="bg-white rounded-3xl premium-shadow border border-slate-100 overflow-hidden mt-1 font-bold">
                             <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 text-slate-900">
-                                <h3 className="text-[14px] font-bold flex items-center gap-2">
-                                    <Icon name="list" size={18} className="text-slate-400" />
-                                    {filters.school.length > 0 ? `[${filters.school.join(', ')}] ` : ''}
-                                    {filters.grade !== '전체' ? `[${filters.grade}] ` : ''}
-                                    {filters.period !== '전체' ? `[${filters.period}] ` : ''}
-                                    상세 문항 리스트
+                                <h3 className="text-[14px] flex items-center gap-2"><Icon name="list" size={18} className="text-slate-400" />
+                                    {filters.school.length > 0 ? `[${filters.school.join(', ')}] ` : ''} {filters.grade !== '전체' ? `[${filters.grade}] ` : ''} {filters.period !== '전체' ? `[${filters.period}] ` : ''} 상세 문항 리스트
                                 </h3>
-                                <span className="text-[10px] font-bold">Total {filters.school.length === 0 ? 0 : filteredData.length}</span>
+                                <span className="text-[10px]">Total {filters.school.length === 0 ? 0 : filteredData.length}</span>
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left text-[11px] whitespace-nowrap text-slate-900">
                                     <thead className="bg-slate-50 text-slate-400 uppercase tracking-tighter shadow-sm">
-                                        <tr>
-                                            <th className="px-6 py-2 font-bold">번호</th>
-                                            <th className="px-6 py-2 font-bold text-center">문제유형</th>
-                                            <th className="px-6 py-2 font-bold">대단원</th>
-                                            <th className="px-6 py-2 font-bold">소단원</th>
-                                            <th className="px-6 py-2 font-bold text-center">난이도</th>
-                                        </tr>
+                                        <tr><th className="px-6 py-2">번호</th><th className="px-6 py-2 text-center">문제유형</th><th className="px-6 py-2">대단원</th><th className="px-6 py-2">소단원</th><th className="px-6 py-2 text-center">난이도</th></tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-50 font-bold">
-                                        {filters.school.length === 0 ? (
-                                            <tr>
-                                                <td colSpan="5" className="px-6 py-10 text-center text-slate-400 font-bold">학교를 선택하면 문항 리스트가 표시됩니다.</td>
-                                            </tr>
-                                        ) : (
+                                    <tbody className="divide-y divide-slate-50">
+                                        {filters.school.length === 0 ? <tr><td colSpan="5" className="px-6 py-10 text-center text-slate-400">학교를 선택하면 문항 리스트가 표시됩니다.</td></tr> :
                                             filteredData.map(row => {
-                                                const m = String(row.difficulty || '').match(/[1-8]/);
-                                                const lvl = m ? m[0] : '4';
+                                                const lvl = String(row.difficulty || '').match(/[1-8]/)?.[0] || '4';
                                                 return (
                                                     <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                                                        <td className="px-6 py-1.5 font-bold text-indigo-900">{row.questionNum}번</td>
-                                                        <td className="px-6 py-1.5 text-center font-bold">
-                                                            <span className={`px-2 py-0.5 rounded text-[10px] ${row.type === '객관식' ? 'bg-blue-50 text-blue-600' : (row.type === '서술형' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600')}`}>
-                                                                {row.type && row.type !== '-' ? row.type : '단답형'}
-                                                            </span>
-                                                        </td>
-                                                        <td className="px-6 py-1.5 text-slate-700 font-bold">{row.majorUnit}</td>
-                                                        <td className="px-6 py-1.5 text-slate-500 font-bold">{row.minorUnit}</td>
-                                                        <td className="px-6 py-1.5 text-center font-bold">
-                                                            <span className="px-2 py-0.5 rounded-full text-[10px] text-white shadow-sm" style={{ backgroundColor: DIFFICULTY_COLORS[lvl] }}>{DIFF_LABELS[lvl]}</span>
-                                                        </td>
+                                                        <td className="px-6 py-1.5 text-indigo-900">{row.questionNum}번</td>
+                                                        <td className="px-6 py-1.5 text-center"><span className={`px-2 py-0.5 rounded text-[10px] ${row.type === '객관식' ? 'bg-blue-50 text-blue-600' : (row.type === '서술형' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600')}`}>{row.type && row.type !== '-' ? row.type : '단답형'}</span></td>
+                                                        <td className="px-6 py-1.5 text-slate-700">{row.majorUnit}</td>
+                                                        <td className="px-6 py-1.5 text-slate-500">{row.minorUnit}</td>
+                                                        <td className="px-6 py-1.5 text-center"><span className="px-2 py-0.5 rounded-full text-[10px] text-white shadow-sm" style={{ backgroundColor: DIFFICULTY_COLORS[lvl] }}>{DIFF_LABELS[lvl]}</span></td>
                                                     </tr>
-                                                );
+                                                )
                                             })
-                                        )}
+                                        }
                                     </tbody>
                                 </table>
                             </div>
@@ -1233,7 +1038,6 @@
                 </div>
             );
         }
-        
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
