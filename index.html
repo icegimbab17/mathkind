@@ -52,7 +52,6 @@
         };
 
         const apiKey = ""; 
-        // 기본 셋팅된 API 키 (사용자가 설정 창에서 변경 가능하도록 기능 추가)
         const INITIAL_MY_GEMINI_KEY = "AIzaSyAMFvUDWLGguSfj2aGDzM3tlOZ-klIQjoU";
 
         const Icon = ({ name, size = 24, className = "" }) => {
@@ -192,7 +191,6 @@
             
             const [stagedImages, setStagedImages] = useState([]);
             
-            // 💡 [새로 추가됨] 깃허브 환경용 API 키 관리 상태
             const [customApiKey, setCustomApiKey] = useState(INITIAL_MY_GEMINI_KEY);
             
             const processFileRef = useRef();
@@ -458,11 +456,12 @@
                 
                 const isExternalEnv = typeof __app_id === 'undefined';
                 
-                // 💡 [수정됨] 깃허브 환경에서는 설정 창에서 변경할 수 있는 customApiKey를 사용, 안정적인 1.5-flash 모델로 고정
                 const activeKey = isExternalEnv ? customApiKey : apiKey;
                 const modelName = isExternalEnv ? "gemini-1.5-flash" : "gemini-2.5-flash-preview-09-2025";
 
-                if(!activeKey || activeKey.trim() === "") { 
+                // 💡 [핵심 수정 부분] 캔버스 환경에서는 activeKey가 비어있어도 무시하고 넘어가도록 수정했습니다.
+                // 이제 캔버스 환경(미리보기)에서는 에러창 없이 즉시 분석이 실행됩니다!
+                if(isExternalEnv && (!activeKey || activeKey.trim() === "")) { 
                     alert("Gemini API 키가 없습니다.\n우측 상단의 [데이터 관리/삭제] 버튼을 눌러 API 키를 먼저 설정해주세요."); 
                     setStagedImages([]); 
                     return; 
@@ -590,7 +589,6 @@
                 } catch (error) {
                     console.error("AI 분석 중 실제 발생한 에러:", error);
                     
-                    // 💡 [수정됨] 명확한 에러 안내창 띄우기
                     if (error.message.includes("not found") || error.message.includes("API version v1beta")) {
                         alert(`[API 키 권한 오류]\n현재 등록된 API 키로는 Gemini 모델에 접근할 수 없습니다.\n\n해결 방법:\n1. aistudio.google.com/app/apikey 에 접속합니다.\n2. 새로운 API 키를 생성합니다.\n3. 우측 상단의 [데이터 관리/삭제] 창에서 새로운 키를 입력 후 저장해주세요.`);
                     } else if (error.message.includes("API key not valid")) {
@@ -809,7 +807,6 @@
                                     <button onClick={() => setShowManageModal(false)}><Icon name="x-circle" size={28} className="text-slate-400"/></button>
                                 </div>
 
-                                {/* 💡 [새로 추가됨] 깃허브 페이지 등 외부망 접속 시 편하게 API 키를 변경할 수 있는 설정 영역 */}
                                 {typeof __app_id === 'undefined' && (
                                     <div className="mb-6 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
                                         <label className="block text-sm font-bold text-indigo-900 mb-2">Google Gemini API 키 설정 (GitHub Pages 전용)</label>
