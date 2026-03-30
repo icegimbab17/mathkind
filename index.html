@@ -51,8 +51,8 @@
             appId: "1:919722012853:web:1d35e60b64263563f68efc"
         };
 
-        // 🚀 선생님의 Gemini API 키가 적용되었습니다.
-        const apiKey = "AIzaSyAMFvUDWLGguSfj2aGDzM3tlOZ-klIQjoU"; 
+        // 🚀 캔버스 환경에서는 런타임에 키가 주입되므로 비워두어야 합니다.
+        const apiKey = ""; 
 
         const Icon = ({ name, size = 24, className = "" }) => {
             const iconRef = useRef(null);
@@ -266,12 +266,19 @@
             }, [user, isCloud]);
 
             const filteredData = useMemo(() => {
-                return data.filter(item => {
+                const filtered = data.filter(item => {
                     const schoolMatch = filters.school.includes(item.school);
                     const typeMatch = getSchoolType(item.school) === filters.schoolType;
                     return typeMatch && schoolMatch &&
                            (filters.period === '전체' || item.period === filters.period) &&
                            (filters.majorUnit === '전체' || item.majorUnit === filters.majorUnit);
+                });
+                
+                // 💡 [정렬 추가] 최종 출력 시 문항 번호 숫자 기준으로 오름차순 정렬
+                return filtered.sort((a, b) => {
+                    const numA = parseInt(String(a.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
+                    const numB = parseInt(String(b.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
+                    return numA - numB;
                 });
             }, [data, filters]);
 
@@ -406,7 +413,6 @@
 
             const analyzeStagedImagesWithAI = async () => {
                 if(stagedImages.length === 0) return;
-                if(!apiKey) { alert("Gemini API 키가 입력되지 않았습니다. 코드 상단의 apiKey 변수에 키를 넣어주세요."); return; }
                 setIsAnalyzing(true);
                 let allExtractedItems = [];
 
@@ -419,15 +425,17 @@
                             contents: [{
                                 role: "user",
                                 parts: [
-                                    { text: `이미지에 포함된 각 수학 문제(카드 형태)를 분석하여 데이터를 추출해.
-추출 및 가공 규칙:
-1. school(학교명): '출처'에서 학교 이름만 추출 (예: '분포중')
-2. period(출제시기): '출처'에서 연도와 학기를 가공. '중1'->'1학년', '중2'->'2학년', '중3'->'3학년'으로 변환 (예: '21년 분포중 중2공통 1학기 기말' -> '21년 2학년 1학기 기말')
-3. questionNum(문항번호): 카드의 번호 (숫자만)
-4. majorUnit(대단원): '유형' 텍스트를 '>'로 분리 시 두 번째 항목. 단, 앞의 숫자는 제외 (예: '06 연립방정식' -> '연립방정식')
-5. minorUnit(소단원): '유형' 텍스트를 '>'로 분리 시 세 번째 항목. 단, 앞의 숫자는 제외 (예: '01 미지수가...' -> '미지수가...')
-6. type(문제유형): 본문에 보기(①,②...)가 명확히 있으면 '객관식', 없으면 '서술형'
-7. difficulty(난이도): 우측 상단 배지의 난이도 숫자(1~8)` },
+                                    { text: `업로드된 수학 문제 카드 이미지를 분석하여 JSON 데이터로 추출해.
+다음 규칙을 엄격하게 적용할 것:
+1. period (출제시기): 하단 [출처]에서 연도와 학기/시험종류 추출. (예: '25년 ... 1학기 기말' -> '2025 1학기')
+2. school (학교명): 하단 [출처]에서 학교 이름만 정확히 추출 (예: '해운대중')
+3. grade (학년): 하단 [출처]에서 학년 추출 (예: '중2공통' -> '중2' 또는 '1학년')
+4. subject (과목): 하단 [출처]나 [유형]에서 과목 추출 (없으면 '수학')
+5. questionNum (문항번호): 좌측 상단의 가장 큰 문제 번호 숫자 (예: '9')
+6. type (문항유형): 문제 내용에 '서술하시오'라는 단어가 포함되어 있으면 '서술형', 그 외의 모든 경우는 무조건 '객관식'으로 분류
+7. majorUnit (대단원): 하단 [유형]에서 '>' 기호 기준 2번째 항목. 단, 앞의 숫자와 공백은 제거
+8. minorUnit (소단원): 하단 [유형]에서 '>' 기호 기준 3번째 항목. 단, 앞의 숫자와 공백은 제거
+9. difficulty (난이도): 우측 상단 배지에 적힌 난이도 숫자 (예: '보통 4' -> '4')` },
                                     { inlineData: { mimeType: mimeType, data: base64Data } }
                                 ]
                             }],
@@ -502,14 +510,22 @@
                     }
 
                     if (allExtractedItems.length > 0) {
+                        // 💡 [정렬 추가] 검수 창에서도 문항 번호 순서대로 표시되도록 정렬
+                        allExtractedItems.sort((a, b) => {
+                            const numA = parseInt(String(a.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
+                            const numB = parseInt(String(b.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
+                            return numA - numB;
+                        });
                         setPendingData({ filename: '다중 이미지 분석', items: allExtractedItems, isAiExtracted: true });
                         setStagedImages([]); 
                     } else {
                         alert("분석된 문항이 없습니다. 이미지를 다시 확인해주세요.");
+                        setStagedImages([]); // 💡 무한 루프 방지
                     }
                 } catch (error) {
                     console.error("AI 분석 중 실제 발생한 에러:", error);
-                    alert(`AI 분석 오류: ${error.message}\n\nAPI 키가 올바른지 다시 한번 확인해주세요.`);
+                    alert(`AI 분석 오류: ${error.message}`);
+                    setStagedImages([]); // 💡 무한 루프 방지
                 } finally {
                     setIsAnalyzing(false);
                 }
@@ -555,6 +571,14 @@
                                 difficulty: diffNum
                             };
                         });
+                        
+                        // 💡 [정렬 추가] 엑셀 데이터 업로드 시에도 문항 번호 순서대로 표시되도록 정렬
+                        newData.sort((a, b) => {
+                            const numA = parseInt(String(a.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
+                            const numB = parseInt(String(b.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
+                            return numA - numB;
+                        });
+
                         setPendingData({ filename: file.name, items: newData, isAiExtracted: false });
                     } catch (error) { alert("엑셀 파일 분석 오류: " + error.message); }
                     if(fileInputRef.current) fileInputRef.current.value = '';
@@ -593,6 +617,15 @@
                     saveLocalData([...filteredExistingData, ...pendingData.items]);
                 }
                 setPendingData(null);
+            };
+
+            // 💡 [새로 추가된 로직] 검수 창에서 데이터를 즉시 수정하는 핸들러
+            const handlePendingChange = (idx, field, value) => {
+                setPendingData(prev => {
+                    const newItems = [...prev.items];
+                    newItems[idx] = { ...newItems[idx], [field]: value };
+                    return { ...prev, items: newItems };
+                });
             };
 
             const deleteSpecificExam = async (school, period) => {
@@ -708,38 +741,45 @@
                                 </h2>
                                 <p className="font-bold text-slate-500 mb-4 text-sm shrink-0 font-black font-black font-black">
                                     <span className="text-indigo-600 underline font-black font-black font-black">{pendingData.items.length}개</span>의 문항을 찾았습니다. 검수 후 적용해주세요.
+                                    <br/><span className="text-emerald-600 font-black">💡 아래 표의 글자를 클릭하면 직접 바로 수정할 수 있습니다.</span>
                                 </p>
 
                                 <div className="flex-1 overflow-auto bg-slate-50 rounded-xl border border-slate-200 mb-6 text-left shadow-inner custom-scroll relative font-black font-black">
-                                    <table className="w-full text-[11px] whitespace-nowrap min-w-[700px] font-black">
+                                    <table className="w-full text-[11px] whitespace-nowrap min-w-[800px] font-black">
                                         <thead className="bg-slate-200/80 text-slate-600 sticky top-0 backdrop-blur-md font-black shadow-sm z-10 font-black">
                                             <tr>
-                                                <th className="px-4 py-2 border-b font-black font-black">번호</th>
-                                                <th className="px-4 py-2 border-b font-black font-black">학교</th>
-                                                <th className="px-4 py-2 border-b font-black font-black">시기</th>
+                                                <th className="px-4 py-2 border-b font-black font-black">출제시기</th>
+                                                <th className="px-4 py-2 border-b font-black font-black">학교명</th>
+                                                <th className="px-4 py-2 border-b font-black font-black">학년</th>
+                                                <th className="px-4 py-2 border-b font-black font-black">과목</th>
+                                                <th className="px-4 py-2 border-b font-black font-black">문항번호</th>
+                                                <th className="px-4 py-2 border-b text-center font-black font-black">문항유형</th>
                                                 <th className="px-4 py-2 border-b font-black font-black">대단원</th>
                                                 <th className="px-4 py-2 border-b font-black font-black">소단원</th>
-                                                <th className="px-4 py-2 border-b text-center font-black font-black">문제유형</th>
                                                 <th className="px-4 py-2 border-b text-center font-black font-black">난이도</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-200 font-bold text-slate-800 font-black">
                                             {pendingData.items.map((row, idx) => (
                                                 <tr key={idx} className="hover:bg-indigo-50/50 transition-colors font-black">
-                                                    <td className="px-4 py-2 text-indigo-900 font-black font-black font-black">{row.questionNum}번</td>
-                                                    <td className="px-4 py-2 text-indigo-700 font-black font-black font-black">{row.school}</td>
-                                                    <td className="px-4 py-2 text-slate-600 font-black font-black font-black">{row.period}</td>
-                                                    <td className="px-4 py-2 max-w-[150px] truncate font-black font-black font-black" title={row.majorUnit}>{row.majorUnit}</td>
-                                                    <td className="px-4 py-2 max-w-[200px] truncate text-slate-500 font-black font-black font-black" title={row.minorUnit}>{row.minorUnit}</td>
-                                                    <td className="px-4 py-2 text-center font-black">
-                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-black font-black ${row.type === '객관식' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'}`}>
-                                                            {row.type}
-                                                        </span>
+                                                    <td className="px-2 py-1"><input type="text" value={row.period} onChange={(e)=>handlePendingChange(idx, 'period', e.target.value)} className="w-full min-w-[80px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-600 font-black transition-colors"/></td>
+                                                    <td className="px-2 py-1"><input type="text" value={row.school} onChange={(e)=>handlePendingChange(idx, 'school', e.target.value)} className="w-full min-w-[80px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-indigo-700 font-black transition-colors"/></td>
+                                                    <td className="px-2 py-1"><input type="text" value={row.grade} onChange={(e)=>handlePendingChange(idx, 'grade', e.target.value)} className="w-full min-w-[60px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-600 font-black transition-colors"/></td>
+                                                    <td className="px-2 py-1"><input type="text" value={row.subject} onChange={(e)=>handlePendingChange(idx, 'subject', e.target.value)} className="w-full min-w-[60px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-600 font-black transition-colors"/></td>
+                                                    <td className="px-2 py-1"><input type="text" value={row.questionNum} onChange={(e)=>handlePendingChange(idx, 'questionNum', e.target.value)} className="w-full min-w-[50px] max-w-[60px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-indigo-900 font-black transition-colors text-center"/></td>
+                                                    <td className="px-2 py-1 text-center">
+                                                        <select value={row.type} onChange={(e)=>handlePendingChange(idx, 'type', e.target.value)} className={`px-2 py-1 rounded text-[10px] font-black outline-none border border-transparent hover:border-slate-300 cursor-pointer text-center ${row.type === '객관식' ? 'bg-blue-100 text-blue-700' : (row.type === '서술형' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700')}`}>
+                                                            <option value="객관식">객관식</option>
+                                                            <option value="서술형">서술형</option>
+                                                            <option value="단답형">단답형</option>
+                                                        </select>
                                                     </td>
-                                                    <td className="px-4 py-2 text-center font-black">
-                                                        <span className="px-2 py-0.5 rounded text-[10px] text-white font-black shadow-sm" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] }}>
-                                                            {row.difficulty}
-                                                        </span>
+                                                    <td className="px-2 py-1"><input type="text" value={row.majorUnit} onChange={(e)=>handlePendingChange(idx, 'majorUnit', e.target.value)} className="w-full min-w-[120px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-800 font-black transition-colors"/></td>
+                                                    <td className="px-2 py-1"><input type="text" value={row.minorUnit} onChange={(e)=>handlePendingChange(idx, 'minorUnit', e.target.value)} className="w-full min-w-[150px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-500 font-black transition-colors"/></td>
+                                                    <td className="px-2 py-1 text-center">
+                                                        <select value={row.difficulty} onChange={(e)=>handlePendingChange(idx, 'difficulty', e.target.value)} className="px-2 py-1 rounded text-[10px] text-white font-black shadow-sm outline-none border border-transparent hover:border-slate-300 cursor-pointer text-center" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] || '#94a3b8' }}>
+                                                            {DIFF_LEVELS.map(lvl => <option key={lvl} value={lvl} style={{backgroundColor: 'white', color: 'black'}}>{lvl}</option>)}
+                                                        </select>
                                                     </td>
                                                 </tr>
                                             ))}
@@ -998,13 +1038,24 @@
 
                         <section className="bg-white rounded-3xl premium-shadow border border-slate-100 overflow-hidden mt-1 font-black">
                             <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 text-slate-900 font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">
-                                <h3 className="text-[14px] font-black flex items-center gap-2 font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black"><Icon name="list" size={18} className="text-slate-400 font-black font-black font-black font-black font-black"/> 상세 문항 리스트</h3>
+                                <h3 className="text-[14px] font-black flex items-center gap-2 font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">
+                                    <Icon name="list" size={18} className="text-slate-400 font-black font-black font-black font-black font-black"/>
+                                    {filters.school.length > 0 ? `[${filters.school.join(', ')}] ` : ''}
+                                    {filters.period !== '전체' ? `[${filters.period}] ` : ''}
+                                    상세 문항 리스트
+                                </h3>
                                 <span className="text-[10px] font-black font-bold font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">Total {filters.school.length === 0 ? 0 : filteredData.length}</span>
                             </div>
                             <div className="overflow-x-auto font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">
                                 <table className="w-full text-left text-[11px] whitespace-nowrap text-slate-900 font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">
                                     <thead className="bg-slate-50 text-slate-400 uppercase tracking-tighter shadow-sm font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">
-                                        <tr><th className="px-6 py-2 font-black font-black font-black font-black font-black font-black font-black">번호</th><th className="px-6 py-2 font-black font-black font-black font-black font-black font-black font-black">대단원</th><th className="px-6 py-2 font-black font-black font-black font-black font-black font-black font-black">소단원</th><th className="px-6 py-2 font-black font-black font-black font-black font-black font-black font-black text-center font-black font-black font-black">문제유형</th><th className="px-6 py-2 text-center font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">난이도</th></tr>
+                                        <tr>
+                                            <th className="px-6 py-2 font-black font-black font-black font-black font-black font-black font-black">번호</th>
+                                            <th className="px-6 py-2 font-black font-black font-black font-black font-black font-black font-black text-center font-black font-black font-black">문제유형</th>
+                                            <th className="px-6 py-2 font-black font-black font-black font-black font-black font-black font-black">대단원</th>
+                                            <th className="px-6 py-2 font-black font-black font-black font-black font-black font-black font-black">소단원</th>
+                                            <th className="px-6 py-2 text-center font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">난이도</th>
+                                        </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-50 font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">
                                         {filters.school.length === 0 ? (
@@ -1018,13 +1069,13 @@
                                                 return (
                                                     <tr key={row.id} className="hover:bg-slate-50 transition-colors font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">
                                                         <td className="px-6 py-1.5 font-black text-indigo-900 font-black font-black font-black font-black font-black font-black font-black font-black font-black">{row.questionNum}번</td>
-                                                        <td className="px-6 py-1.5 text-slate-700 font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">{row.majorUnit}</td>
-                                                        <td className="px-6 py-1.5 text-slate-500 font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">{row.minorUnit}</td>
                                                         <td className="px-6 py-1.5 text-center font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">
-                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black font-black font-black font-black font-black font-black ${row.type === '객관식' ? 'bg-blue-50 text-blue-600 font-black font-black' : 'bg-rose-50 text-rose-600 font-black font-black'}`}>
-                                                                {row.type || '-'}
+                                                            <span className={`px-2 py-0.5 rounded text-[10px] font-black font-black font-black font-black font-black font-black ${row.type === '객관식' ? 'bg-blue-50 text-blue-600 font-black font-black' : (row.type === '서술형' ? 'bg-rose-50 text-rose-600 font-black font-black' : 'bg-emerald-50 text-emerald-600 font-black font-black')}`}>
+                                                                {row.type && row.type !== '-' ? row.type : '단답형'}
                                                             </span>
                                                         </td>
+                                                        <td className="px-6 py-1.5 text-slate-700 font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">{row.majorUnit}</td>
+                                                        <td className="px-6 py-1.5 text-slate-500 font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">{row.minorUnit}</td>
                                                         <td className="px-6 py-1.5 text-center font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black">
                                                             <span className="px-2 py-0.5 rounded-full text-[10px] text-white font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black font-black" style={{ backgroundColor: DIFFICULTY_COLORS[lvl] }}>{DIFF_LABELS[lvl]}</span>
                                                         </td>
