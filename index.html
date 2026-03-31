@@ -145,6 +145,7 @@
             { id: 'unit-analysis', label: '단원별 상세 분석', icon: 'pie-chart' },
             { id: 'level-count', label: '전체 문항대비 난이도비율', icon: 'activity' },
             { id: 'school-diff', label: '학교별 종합 난이도', icon: 'school' },
+            { id: 'ai-recommend', label: '기출 추천 AI', icon: 'sparkles' },
         ];
 
         const getSchoolType = (schoolName) => {
@@ -152,6 +153,17 @@
             const name = String(schoolName).trim();
             if (name.endsWith('중') || name.includes('중학교')) return '중학교';
             return '고등학교';
+        };
+
+        const formatGrade = (val) => {
+            const str = String(val || '').trim();
+            const match = str.match(/[1-3]/);
+            if (match) return `중${match[0]}`;
+            return '-';
+        };
+
+        const generateStableId = (index = 0) => {
+            return String(Date.now() + index) + '-' + Math.random().toString(36).substring(2, 9);
         };
 
         let firebaseApp, firebaseAuth, firebaseDb, fbLibs;
@@ -191,10 +203,27 @@
             
             const [stagedImages, setStagedImages] = useState([]);
             const [customApiKey, setCustomApiKey] = useState(INITIAL_MY_GEMINI_KEY);
+
+            const [recommendParams, setRecommendParams] = useState({ grade: '전체', period: '전체', diff: 3, preferBalanced: true });
+            const [recommendResults, setRecommendResults] = useState([]);
+
+            // 💡 [핵심 해결] 미리보기(Canvas) 환경의 window.confirm / alert 차단 문제를 회피하기 위한 자체 UI 팝업 시스템
+            const [customDialog, setCustomDialog] = useState({ isOpen: false, message: '', type: 'alert', onConfirm: null });
+
+            const showAlert = (message) => {
+                setCustomDialog({ isOpen: true, message, type: 'alert', onConfirm: null });
+            };
+
+            const showConfirm = (message, onConfirmCallback) => {
+                setCustomDialog({ isOpen: true, message, type: 'confirm', onConfirm: onConfirmCallback });
+            };
+
+            const closeDialog = () => {
+                setCustomDialog({ isOpen: false, message: '', type: 'alert', onConfirm: null });
+            };
             
             const processFileRef = useRef();
 
-            // 💡 [해결] 브라우저에 저장된 옛날 고장난 키를 완전히 삭제하고, 무조건 선생님의 새 키로 고정합니다.
             useEffect(() => {
                 localStorage.removeItem('my_gemini_api_key');
                 setCustomApiKey(INITIAL_MY_GEMINI_KEY);
@@ -204,12 +233,13 @@
                 return list.map(item => {
                     let period = String(item.period || '미상').trim().replace(/년/g, '').trim(); 
                     const school = String(item.school || '').trim();
-                    if (['센텀중', '해강중', '해운대중'].some(s => school.includes(s))) {
+                    const grade = formatGrade(item.grade);
+                    if (['센텀중', '해강중', '해운대중', '동백중'].some(s => school.includes(s))) {
                         if (!period.includes('기말') && !period.includes('중간') && period !== '전체') {
                             period = period + ' 기말';
                         }
                     }
-                    return { ...item, period, school };
+                    return { ...item, period, school, grade };
                 });
             };
 
@@ -244,13 +274,11 @@
                                 import('https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js'),
                                 import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js')
                             ]);
-                            
                             const apps = appLib.getApps();
                             firebaseApp = apps.length === 0 ? appLib.initializeApp(finalConfig) : apps[0];
                             firebaseDb = fsLib.getFirestore(firebaseApp);
                             fbLibs = { app: appLib, fs: fsLib, auth: authLib };
                             setIsCloud(true);
-                            
                             try {
                                 firebaseAuth = authLib.getAuth(firebaseApp);
                                 if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token && !myFirebaseConfig) {
@@ -260,13 +288,9 @@
                                 }
                                 authLib.onAuthStateChanged(firebaseAuth, (u) => { setUser(u || {uid:'anonymous'}); });
                             } catch(authErr) {
-                                console.warn("익명 로그인 실패.");
                                 setUser({uid:'anonymous'});
                             }
-                        } catch (e) { 
-                            console.error("Firebase 로드 실패:", e);
-                            loadLocalData(); 
-                        }
+                        } catch (e) { loadLocalData(); }
                     } else { loadLocalData(); }
                 };
                 initFirebase();
@@ -277,7 +301,7 @@
                     const { onSnapshot } = fbLibs.fs;
                     const dataRef = getCollectionRef(firebaseDb);
                     const unsubscribe = onSnapshot(dataRef, (snapshot) => {
-                        const fetchedData = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+                        const fetchedData = snapshot.docs.map(d => ({ ...d.data(), id: d.id }));
                         setData(normalizeDataList(fetchedData));
                     }, (error) => {
                         console.error("Firestore 읽기 권한이 없습니다.", error);
@@ -288,46 +312,31 @@
 
             const filteredData = useMemo(() => {
                 const filtered = data.filter(item => {
-                    const schoolMatch = filters.school.includes(item.school);
+                    const schoolMatch = filters.school.length === 0 || filters.school.includes(item.school);
                     const typeMatch = getSchoolType(item.school) === filters.schoolType;
                     return typeMatch && schoolMatch &&
                            (filters.grade === '전체' || item.grade === filters.grade) &&
                            (filters.period === '전체' || item.period === filters.period) &&
                            (filters.majorUnit === '전체' || item.majorUnit === filters.majorUnit);
                 });
-                
-                return filtered.sort((a, b) => {
-                    const numA = parseInt(String(a.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
-                    const numB = parseInt(String(b.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
-                    return numA - numB;
-                });
+                return filtered.sort((a, b) => (parseInt(String(a.questionNum).replace(/[^0-9]/g, '')) || 0) - (parseInt(String(b.questionNum).replace(/[^0-9]/g, '')) || 0));
             }, [data, filters]);
 
             const options = useMemo(() => {
                 const currentTypeSchools = [...new Set(data.map(d => d.school))]
                     .filter(s => s && s !== '학교명' && s !== '학교' && s !== '미상')
                     .filter(s => getSchoolType(s) === (filters.schoolType || '고등학교'));
-
                 let relevantData = data.filter(d => getSchoolType(d.school) === (filters.schoolType || '고등학교'));
-                
-                if (filters.school && filters.school.length > 0) {
-                    relevantData = relevantData.filter(d => filters.school.includes(d.school));
-                }
-
+                if (filters.school && filters.school.length > 0) relevantData = relevantData.filter(d => filters.school.includes(d.school));
                 const gradeOptions = ['전체', ...new Set(relevantData.map(d => d.grade))].filter(g => g && g !== '-').sort();
-                if (filters.grade !== '전체') relevantData = relevantData.filter(d => d.grade === filters.grade);
-
                 const periodOptions = ['전체', ...new Set(relevantData.map(d => d.period))].filter(p => p).sort();
-                if (filters.period !== '전체') relevantData = relevantData.filter(d => d.period === filters.period);
-
                 const majorUnitOptions = ['전체', ...new Set(relevantData.map(d => d.majorUnit))];
-
                 return { school: currentTypeSchools.sort(), grade: gradeOptions, period: periodOptions, majorUnit: majorUnitOptions };
-            }, [data, filters.schoolType, filters.school, filters.grade, filters.period]);
+            }, [data, filters.schoolType, filters.school]);
 
             const activeSchools = useMemo(() => filters.school, [filters.school]);
             const isComparing = filters.school.length > 1;
-            const chartRenderList = useMemo(() => isComparing ? activeSchools : ['single'], [isComparing, activeSchools]);
+            const chartRenderList = useMemo(() => isComparing ? activeSchools : (filters.school.length > 0 ? filters.school : ['single']), [isComparing, activeSchools, filters.school]);
             const totalQuestionsAnalyzed = filteredData.length;
             const totalUnitsAnalyzed = new Set(filteredData.map(d=>d.majorUnit)).size;
 
@@ -339,22 +348,12 @@
                         activeSchools.forEach(school => {
                             const sub = filteredData.filter(d => d.majorUnit === unit && d.school === school);
                             row[school] = { total: sub.length };
-                            DIFF_LEVELS.forEach(lvl => { 
-                                row[school][lvl] = sub.filter(d => {
-                                    const m = String(d.difficulty || '').match(/[1-8]/);
-                                    return (m ? m[0] : '4') === lvl;
-                                }).length; 
-                            });
+                            DIFF_LEVELS.forEach(lvl => { row[school][lvl] = sub.filter(d => (String(d.difficulty || '').match(/[1-8]/)?.[0] || '4') === lvl).length; });
                         });
                     } else {
                         const sub = filteredData.filter(d => d.majorUnit === unit);
                         row.single = { total: sub.length };
-                        DIFF_LEVELS.forEach(lvl => { 
-                            row.single[lvl] = sub.filter(d => {
-                                const m = String(d.difficulty || '').match(/[1-8]/);
-                                return (m ? m[0] : '4') === lvl;
-                            }).length; 
-                        });
+                        DIFF_LEVELS.forEach(lvl => { row.single[lvl] = sub.filter(d => (String(d.difficulty || '').match(/[1-8]/)?.[0] || '4') === lvl).length; });
                     }
                     return row;
                 });
@@ -364,34 +363,21 @@
                 return DIFF_LEVELS.map(level => {
                     const row = { level };
                     if (isComparing) {
-                        activeSchools.forEach(school => { 
-                            row[school] = filteredData.filter(d => {
-                                const m = String(d.difficulty || '').match(/[1-8]/);
-                                return (m ? m[0] : '4') === level && d.school === school;
-                            }).length; 
-                        });
+                        activeSchools.forEach(school => { row[school] = filteredData.filter(d => (String(d.difficulty || '').match(/[1-8]/)?.[0] || '4') === level && d.school === school).length; });
                     } else {
-                        row.count = filteredData.filter(d => {
-                            const m = String(d.difficulty || '').match(/[1-8]/);
-                            return (m ? m[0] : '4') === level;
-                        }).length;
+                        row.count = filteredData.filter(d => (String(d.difficulty || '').match(/[1-8]/)?.[0] || '4') === level).length;
                     }
                     return row;
                 });
             }, [filteredData, isComparing, activeSchools]);
 
             const schoolVerticalData = useMemo(() => {
-                return activeSchools.filter(s => s && s !== '학교명' && s !== '학교').map(school => {
+                const schoolList = activeSchools.length > 0 ? activeSchools : [...new Set(filteredData.map(d=>d.school))];
+                return schoolList.filter(s => s && s !== '학교명' && s !== '학교').map(school => {
                     const sData = filteredData.filter(d => d.school === school);
                     const total = sData.length;
                     const diffCounts = { '1': 0, '2': 0, '3': 0, '4': 0, '5': 0, '6': 0, '7': 0, '8': 0 };
-                    if (total > 0) {
-                        sData.forEach(d => {
-                            const m = String(d.difficulty || '').match(/[1-8]/);
-                            const lvl = m ? m[0] : '4';
-                            diffCounts[lvl]++;
-                        });
-                    }
+                    if (total > 0) sData.forEach(d => { const lvl = String(d.difficulty || '').match(/[1-8]/)?.[0] || '4'; diffCounts[lvl]++; });
                     return { school, total, diffCounts };
                 }).filter(row => row.total > 0);
             }, [activeSchools, filteredData]);
@@ -416,279 +402,238 @@
                   .sort((a, b) => a.type.localeCompare(b.type) || a.school.localeCompare(b.school));
             }, [data]);
 
-            const processFile = async (file) => {
-                if (!file) return;
-                
-                // 💡 새 이미지가 들어오면 이전 분석 결과 모달을 닫아 대기창이 보이게 함
-                setPendingData(null); 
-
-                if (file.type.startsWith('image/')) {
-                    const dataUrl = await fileToBase64(file);
-                    setStagedImages(prev => [...prev, { id: Date.now() + Math.random(), file, dataUrl: `data:${file.type};base64,${dataUrl}` }]);
-                    if(fileInputRef.current) fileInputRef.current.value = '';
-                    return;
-                }
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    try {
-                        const workbook = XLSX.read(new Uint8Array(evt.target.result), { type: 'array' });
-                        const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
-                        const headerIdx = json.findIndex(row => row && row.some(cell => String(cell).includes('학교명') || String(cell).includes('대단원') || String(cell).includes('난이도')));
-                        if (headerIdx === -1) throw new Error("헤더를 찾을 수 없습니다.");
-                        const header = json[headerIdx].map(h => String(h || '').trim());
-                        const findIdx = (names) => names.reduce((acc, name) => acc !== -1 ? acc : header.findIndex(h => h.includes(name)), -1);
-                        const idxMap = {
-                            period: findIdx(['출제시기', '시기']), school: findIdx(['학교명', '학교']), grade: findIdx(['학년']), subject: findIdx(['과목']),
-                            qNum: findIdx(['문항번호', '번호']), type: findIdx(['문항유형', '유형', '문제유형']), major: findIdx(['대단원', '단원']),
-                            minor: findIdx(['소단원']), diff: findIdx(['난이도'])
-                        };
-                        const newData = json.slice(headerIdx + 1).filter(row => {
-                            if (!row || row.length === 0) return false;
-                            const sName = String(row[idxMap.school] || '').trim();
-                            if (!sName || sName === '학교명' || sName === '학교') return false;
-                            return true;
-                        }).map((cols, i) => {
-                            const rawDiff = String(cols[idxMap.diff] || '4');
-                            const diffNum = rawDiff.match(/[1-8]/)?.[0] || '4'; 
-                            let extSchool = String(cols[idxMap.school] || '미상').trim();
-                            let extPeriod = String(cols[idxMap.period] || '미상').trim().replace(/년/g, '').trim(); 
-                            if (['센텀중', '해강중', '해운대중'].some(s => extSchool.includes(s))) {
-                                if (!extPeriod.includes('기말') && !extPeriod.includes('중간')) extPeriod = extPeriod + ' 기말';
-                            }
-                            return {
-                                id: Date.now() + i + Math.random(), period: extPeriod, school: extSchool,
-                                grade: String(cols[idxMap.grade] || '-').trim(), subject: String(cols[idxMap.subject] || '-').trim(),
-                                questionNum: String(cols[idxMap.qNum] || '-').trim(), type: String(cols[idxMap.type] || '-').trim(),
-                                majorUnit: String(cols[idxMap.major] || '단원미지정').trim(), minorUnit: String(cols[idxMap.minor] || '-').trim(),
-                                difficulty: diffNum
-                            };
-                        });
-                        newData.sort((a, b) => (parseInt(a.questionNum) || 0) - (parseInt(b.questionNum) || 0));
-                        setPendingData({ filename: file.name, items: newData, isAiExtracted: false });
-                    } catch (error) { alert("엑셀 파일 분석 오류: " + error.message); }
-                    if(fileInputRef.current) fileInputRef.current.value = '';
-                };
-                reader.readAsArrayBuffer(file);
+            const handleRecommend = () => {
+                const groups = {};
+                data.forEach(d => {
+                    const key = `${d.school}|${d.grade}|${d.period}`;
+                    if (!groups[key]) groups[key] = { school: d.school, grade: d.grade, period: d.period, diffs: [], count: 0 };
+                    groups[key].diffs.push(parseInt(String(d.difficulty || '').match(/[1-8]/)?.[0] || '4'));
+                    groups[key].count += 1;
+                });
+                const examStats = Object.values(groups).map(g => {
+                    const avg = g.diffs.reduce((a,b)=>a+b, 0) / g.count;
+                    const variance = g.diffs.reduce((a,b) => a + Math.pow(b - avg, 2), 0) / g.count;
+                    return { ...g, avgDiff: avg, stdDev: Math.sqrt(variance) };
+                });
+                const recommended = examStats
+                    .filter(ex => (recommendParams.grade === '전체' || ex.grade === recommendParams.grade) && (recommendParams.period === '전체' || ex.period === recommendParams.period))
+                    .map(ex => ({ ...ex, score: Math.abs(ex.avgDiff - recommendParams.diff) + (recommendParams.preferBalanced ? ex.stdDev * 0.5 : 0) }))
+                    .sort((a, b) => a.score - b.score).slice(0, 5);
+                setRecommendResults(recommended);
             };
-
-            useEffect(() => { processFileRef.current = processFile; });
-
-            // 💡 [해결] 전역 붙여넣기(Paste) 이벤트 리스너 복구 및 강화
-            useEffect(() => {
-                const handleGlobalPaste = async (e) => {
-                    const items = e.clipboardData?.items;
-                    if (!items) return;
-                    
-                    let imagesFound = false;
-                    for (let i = 0; i < items.length; i++) {
-                        if (items[i].type.indexOf('image') !== -1) {
-                            const blob = items[i].getAsFile();
-                            if (blob) {
-                                imagesFound = true;
-                                const ext = items[i].type.split('/')[1] || 'png';
-                                const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: items[i].type });
-                                if (processFileRef.current) processFileRef.current(file);
-                            }
-                        }
-                    }
-                    if (imagesFound) e.preventDefault();
-                };
-                
-                window.addEventListener('paste', handleGlobalPaste);
-                return () => window.removeEventListener('paste', handleGlobalPaste);
-            }, []);
 
             const analyzeStagedImagesWithAI = async () => {
                 if(stagedImages.length === 0) return;
-                
                 const isExternalEnv = typeof __app_id === 'undefined';
                 const activeKey = isExternalEnv ? customApiKey : apiKey;
                 const modelName = isExternalEnv ? "gemini-1.5-flash" : "gemini-2.5-flash-preview-09-2025";
-
+                
                 if(isExternalEnv && (!activeKey || activeKey.trim() === "")) { 
-                    alert("Gemini API 키가 없습니다.\n우측 상단의 [데이터 관리/삭제] 버튼을 눌러 API 키를 먼저 설정해주세요."); 
+                    showAlert("API 키가 없습니다.\n우측 상단의 [데이터 관리/삭제] 버튼을 눌러 API 키를 먼저 설정해주세요."); 
                     setStagedImages([]); 
                     return; 
                 }
                 
                 setIsAnalyzing(true);
                 let allExtractedItems = [];
-
                 try {
                     for (const staged of stagedImages) {
                         const base64Data = staged.dataUrl.split(',')[1];
                         const mimeType = staged.file.type;
-
-                        const payload = {
-                            contents: [{
-                                role: "user",
-                                parts: [
-                                    { text: `업로드된 수학 문제 카드 이미지를 분석하여 JSON 데이터로 추출해.
-다음 규칙을 엄격하게 적용할 것:
-1. period (출제시기): 하단 [출처] 텍스트를 끝까지 꼼꼼히 읽고, 연도, 학기, 그리고 **'중간'**인지 **'기말'**인지 반드시 찾아서 모두 추출해. '년' 글자는 제외할 것. (예: '24년 센텀여고 고1공통 1학기중간' -> '2024 1학기 중간', '25년 분포중 2학기 기말' -> '2025 2학기 기말')
-2. school (학교명): 하단 [출처]에서 학교 이름만 정확히 추출 (예: '해운대중')
-3. grade (학년): 하단 [출처]에서 학년 추출 (예: '중2공통' -> '중2' 또는 '1학년')
-4. subject (과목): 하단 [출처]나 [유형]에서 과목 추출 (없으면 '수학')
-5. questionNum (문항번호): 좌측 상단의 가장 큰 문제 번호 숫자 (예: '9')
-6. type (문항유형): 문제 내용에 '서술하시오'라는 단어가 포함되어 있으면 '서술형', 그 외의 모든 경우는 무조건 '객관식'으로 분류
-7. majorUnit (대단원): 하단 [유형]에서 '>' 기호 기준 2번째 항목. 단, 앞의 숫자와 공백은 제거
-8. minorUnit (소단원): 하단 [유형]에서 '>' 기호 기준 3번째 항목. 단, 앞의 숫자와 공백은 제거
-9. difficulty (난이도): 우측 상단 배지에 적힌 난이도 숫자 (예: '보통 4' -> '4')` },
-                                    { inlineData: { mimeType: mimeType, data: base64Data } }
-                                ]
-                            }],
-                            generationConfig: {
-                                responseMimeType: "application/json",
-                                responseSchema: {
-                                    type: "OBJECT",
-                                    properties: {
-                                        items: {
-                                            type: "ARRAY",
-                                            items: {
-                                                type: "OBJECT",
-                                                properties: {
-                                                    school: { type: "STRING" },
-                                                    period: { type: "STRING" },
-                                                    grade: { type: "STRING" },
-                                                    subject: { type: "STRING" },
-                                                    questionNum: { type: "STRING" },
-                                                    majorUnit: { type: "STRING" },
-                                                    minorUnit: { type: "STRING" },
-                                                    type: { type: "STRING" },
-                                                    difficulty: { type: "STRING" }
-                                                },
-                                                required: ["school", "period", "questionNum", "majorUnit", "type", "difficulty"]
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        };
-
-                        let result = null;
-                        const delays = [1000, 2000, 4000, 8000];
                         
-                        for (let i = 0; i < 4; i++) {
+                        const payload = {
+                            contents: [{ role: "user", parts: [ 
+                                { text: `수학 문제 이미지 분석 JSON 추출. 엄격한 규칙:
+1. period: 출제 시기. 연도, 학기, 중간/기말 모두 포함 ('년' 제외, 예: '2025 1학기 기말')
+2. school: 학교명. (예: '해운대중')
+3. grade: 학년. 반드시 '중1', '중2', '중3', '고1', '고2', '고3' 형식으로 통일.
+4. subject: 과목명.
+5. questionNum: 문항 번호. 숫자만 추출.
+6. type: 문항 유형. '객관식', '단답형', '서술형' 3가지 중 하나로 엄격하게 분류. (문제에 보기 ①,②.. 가 있으면 '객관식', '서술하시오'나 '풀이과정' 요구시 '서술형', 보기가 없고 답만 적는 구조면 '단답형')
+7. majorUnit: 대단원. 하단 [유형] 항목이 'A > B > C' 구조일 때 두 번째(B) 텍스트. 번호 기호 및 공백 제거 (예: '중3-1 > 1. 실수 > 01. 제곱근' -> '실수')
+8. minorUnit: 소단원. 하단 [유형] 항목이 'A > B > C' 구조일 때 세 번째(C) 텍스트. 번호 기호 및 공백 제거 (예: '중3-1 > 1. 실수 > 01. 제곱근' -> '제곱근')
+9. difficulty: 난이도. 1~8 숫자만 추출.` }, 
+                                { inlineData: { mimeType: mimeType, data: base64Data } } 
+                            ] }],
+                            generationConfig: { responseMimeType: "application/json", responseSchema: { type: "OBJECT", properties: { items: { type: "ARRAY", items: { type: "OBJECT", properties: { school: { type: "STRING" }, period: { type: "STRING" }, grade: { type: "STRING" }, subject: { type: "STRING" }, questionNum: { type: "STRING" }, majorUnit: { type: "STRING" }, minorUnit: { type: "STRING" }, type: { type: "STRING" }, difficulty: { type: "STRING" } }, required: ["school", "period", "grade", "questionNum", "majorUnit", "type", "difficulty"] } } } } }
+                        };
+                        
+                        let result = null;
+                        for (let i = 0; i < 3; i++) {
                             try {
-                                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${activeKey}`, {
-                                    method: 'POST',
-                                    headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify(payload)
-                                });
-                                if (!response.ok) {
-                                    const errData = await response.json().catch(()=>({}));
-                                    throw new Error(errData.error?.message || `HTTP 에러 ${response.status}`);
-                                }
-                                result = await response.json();
-                                break;
-                            } catch (err) {
-                                if (i === 3) throw err;
-                                await new Promise(r => setTimeout(r, delays[i]));
-                            }
+                                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${activeKey}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+                                result = await response.json(); break;
+                            } catch (err) { if (i === 2) throw err; await new Promise(r => setTimeout(r, 2000)); }
                         }
-
-                        if (result && result.candidates && result.candidates[0].content.parts[0].text) {
+                        if (result?.candidates?.[0]?.content?.parts?.[0]?.text) {
                             const parsed = JSON.parse(result.candidates[0].content.parts[0].text);
-                            if (parsed.items && Array.isArray(parsed.items)) {
-                                const formattedData = parsed.items.map((item, i) => {
-                                    let extractedSchool = String(item.school || '미상').trim();
-                                    let extractedPeriod = String(item.period || '미상').trim().replace(/년/g, '').trim();
-                                    if (['센텀중', '해강중', '해운대중'].some(s => extractedSchool.includes(s))) {
-                                        if (!extractedPeriod.includes('기말') && !extractedPeriod.includes('중간')) extractedPeriod = extractedPeriod + ' 기말';
-                                    }
-                                    return {
-                                        id: Date.now() + i + Math.random(),
-                                        period: extractedPeriod,
-                                        school: extractedSchool,
-                                        grade: item.grade || '-',
-                                        subject: item.subject || '-',
-                                        questionNum: String(item.questionNum || '-').replace(/[^0-9]/g, ''),
-                                        type: item.type || '-',
-                                        majorUnit: (item.majorUnit || '단원미지정').replace(/^[0-9\s]+/, '').trim(),
-                                        minorUnit: (item.minorUnit || '-').replace(/^[0-9\s]+/, '').trim(),
-                                        difficulty: String(item.difficulty || '4').match(/[1-8]/)?.[0] || '4'
+                            if (parsed.items) {
+                                const formatted = parsed.items.map((item, i) => {
+                                    let p = String(item.period || '').replace(/년/g, '').trim();
+                                    if (['센텀중', '해강중', '해운대중', '동백중'].some(s => item.school.includes(s)) && !p.includes('기말') && !p.includes('중간')) p += ' 기말';
+                                    return { 
+                                        id: generateStableId(i), 
+                                        period: p, 
+                                        school: item.school, 
+                                        grade: formatGrade(item.grade), 
+                                        subject: item.subject || '-', 
+                                        questionNum: String(item.questionNum).replace(/[^0-9]/g, ''), 
+                                        type: item.type || '단답형', 
+                                        majorUnit: (item.majorUnit || '').replace(/^[0-9\s]+/, '').trim(), 
+                                        minorUnit: (item.minorUnit || '').replace(/^[0-9\s]+/, '').trim(), 
+                                        difficulty: String(item.difficulty).match(/[1-8]/)?.[0] || '4' 
                                     };
                                 });
-                                allExtractedItems = [...allExtractedItems, ...formattedData];
+                                allExtractedItems = [...allExtractedItems, ...formatted];
                             }
                         }
                     }
-
                     if (allExtractedItems.length > 0) {
-                        allExtractedItems.sort((a, b) => {
-                            const numA = parseInt(String(a.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
-                            const numB = parseInt(String(b.questionNum).replace(/[^0-9]/g, ''), 10) || 0;
-                            return numA - numB;
-                        });
-                        setPendingData({ filename: '다중 이미지 분석', items: allExtractedItems, isAiExtracted: true });
-                        setStagedImages([]); 
-                    } else {
-                        alert("분석된 문항이 없습니다. 이미지를 다시 확인해주세요.");
-                        setStagedImages([]); 
+                        allExtractedItems.sort((a, b) => (parseInt(a.questionNum) || 0) - (parseInt(b.questionNum) || 0));
+                        setPendingData({ filename: 'AI 분석 결과', items: allExtractedItems, isAiExtracted: true });
+                        setStagedImages([]);
                     }
-                } catch (error) {
-                    console.error("AI 분석 실제 에러:", error);
-                    alert(`[API 에러 발생]\n\n원인: ${error.message}\n\n조치: API 키 발급 사이트에서 키가 활성 상태인지 확인해주세요.`);
-                    setStagedImages([]); 
-                } finally {
-                    setIsAnalyzing(false);
+                } catch (error) { showAlert(`분석 중 오류 발생:\n${error.message}`); setStagedImages([]); } finally { setIsAnalyzing(false); }
+            };
+
+            const processFile = async (file) => {
+                setPendingData(null);
+                if (file.type.startsWith('image/')) {
+                    const dataUrl = await fileToBase64(file);
+                    setStagedImages(prev => [...prev, { id: generateStableId(), file, dataUrl: `data:${file.type};base64,${dataUrl}` }]);
+                } else {
+                    const reader = new FileReader();
+                    reader.onload = (evt) => {
+                        try {
+                            const workbook = XLSX.read(new Uint8Array(evt.target.result), { type: 'array' });
+                            const json = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { header: 1 });
+                            const headerIdx = json.findIndex(row => row && row.some(cell => String(cell).includes('학교명')));
+                            const header = json[headerIdx].map(h => String(h || '').trim());
+                            const findIdx = (names) => names.reduce((acc, name) => acc !== -1 ? acc : header.findIndex(h => h.includes(name)), -1);
+                            const idxMap = { period: findIdx(['출제시기']), school: findIdx(['학교명']), grade: findIdx(['학년']), subject: findIdx(['과목']), qNum: findIdx(['문항번호']), type: findIdx(['문항유형']), major: findIdx(['대단원']), minor: findIdx(['소단원']), diff: findIdx(['난이도']) };
+                            const newData = json.slice(headerIdx + 1).filter(row => row[idxMap.school]).map((cols, i) => {
+                                let p = String(cols[idxMap.period] || '').replace(/년/g, '').trim();
+                                if (['센텀중', '해강중', '해운대중', '동백중'].some(s => String(cols[idxMap.school]).includes(s)) && !p.includes('기말') && !p.includes('중간')) p += ' 기말';
+                                return { 
+                                    id: generateStableId(i), 
+                                    period: p, 
+                                    school: String(cols[idxMap.school]), 
+                                    grade: formatGrade(cols[idxMap.grade]), 
+                                    subject: String(cols[idxMap.subject] || '-'), 
+                                    questionNum: String(cols[idxMap.qNum]), 
+                                    type: String(cols[idxMap.type]), 
+                                    majorUnit: String(cols[idxMap.major]), 
+                                    minorUnit: String(cols[idxMap.minor]), 
+                                    difficulty: String(cols[idxMap.diff]).match(/[1-8]/)?.[0] || '4' 
+                                };
+                            });
+                            newData.sort((a, b) => (parseInt(a.questionNum) || 0) - (parseInt(b.questionNum) || 0));
+                            setPendingData({ filename: file.name, items: newData, isAiExtracted: false });
+                        } catch (e) { showAlert("엑셀 파일 분석에 실패했습니다."); }
+                    };
+                    reader.readAsArrayBuffer(file);
                 }
             };
 
             const confirmUpload = async () => {
+                if (!pendingData) return;
                 const uploadedExams = [...new Set(pendingData.items.map(item => `${item.school}|${item.grade}|${item.period}`))];
                 const existingExams = new Set(data.map(d => `${d.school}|${d.grade}|${d.period}`));
                 const overlaps = uploadedExams.filter(exam => existingExams.has(exam));
+                
+                const executeUpload = async () => {
+                    try {
+                        if (isCloud && fbLibs) {
+                            const { doc, setDoc, deleteDoc } = fbLibs.fs;
+                            const dataRef = getCollectionRef(firebaseDb);
+                            if (overlaps.length > 0) {
+                                const idsToDelete = data.filter(d => overlaps.includes(`${d.school}|${d.grade}|${d.period}`)).map(d => d.id);
+                                await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
+                            }
+                            await Promise.all(pendingData.items.map(item => setDoc(doc(dataRef, String(item.id)), item)));
+                        } else {
+                            const filteredExistingData = data.filter(d => !overlaps.includes(`${d.school}|${d.grade}|${d.period}`));
+                            saveLocalData([...filteredExistingData, ...pendingData.items]);
+                        }
+                        setPendingData(null);
+                        showAlert("데이터가 성공적으로 저장되었습니다!");
+                    } catch (error) {
+                        console.error("저장 중 오류:", error);
+                        showAlert("데이터 저장 중 오류가 발생했습니다.\n" + error.message);
+                    }
+                };
+
                 if (overlaps.length > 0) {
-                    if (!window.confirm("동일한 학교, 학년 및 시기의 데이터가 이미 존재합니다.\n덮어쓰시겠습니까?")) {
-                        setPendingData(null); return; 
-                    }
-                }
-                if (isCloud && user) {
-                    const { doc, setDoc, deleteDoc } = fbLibs.fs;
-                    const dataRef = getCollectionRef(firebaseDb);
-                    if (overlaps.length > 0) {
-                        const idsToDelete = data.filter(d => overlaps.includes(`${d.school}|${d.grade}|${d.period}`)).map(d => d.id);
-                        await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
-                    }
-                    await Promise.all(pendingData.items.map(item => setDoc(doc(dataRef, String(item.id)), item)));
+                    // 💡 [해결] 자체 제작한 확인창(모달) 띄우기
+                    showConfirm("동일한 기출 데이터가 이미 존재합니다.\n기존 데이터를 지우고 새 데이터로 덮어쓰시겠습니까?", executeUpload);
                 } else {
-                    const filteredExistingData = data.filter(d => !overlaps.includes(`${d.school}|${d.grade}|${d.period}`));
-                    saveLocalData([...filteredExistingData, ...pendingData.items]);
+                    executeUpload();
                 }
-                setPendingData(null);
             };
+
+            useEffect(() => {
+                const handleGlobalPaste = (e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+                    for (let i = 0; i < items.length; i++) {
+                        if (items[i].type.indexOf('image') !== -1) {
+                            const blob = items[i].getAsFile();
+                            if (blob) processFile(new File([blob], `paste-${Date.now()}.png`, { type: 'image/png' }));
+                        }
+                    }
+                };
+                window.addEventListener('paste', handleGlobalPaste);
+                return () => window.removeEventListener('paste', handleGlobalPaste);
+            }, [data, isCloud, user, pendingData]);
 
             const handlePendingChange = (idx, field, value) => {
                 setPendingData(prev => {
                     const newItems = [...prev.items];
-                    newItems[idx] = { ...newItems[idx], [field]: value };
+                    newItems[idx] = { ...newItems[idx], [field]: (field === 'grade' ? formatGrade(value) : value) };
                     return { ...prev, items: newItems };
                 });
             };
 
-            const deleteSpecificExam = async (school, grade, period) => {
-                if (!window.confirm(`[${school} - ${grade} - ${period}] 데이터를 삭제하시겠습니까?`)) return;
-                const idsToDelete = data.filter(d => d.school === school && d.grade === grade && d.period === period).map(d => d.id);
-                if (isCloud && user) {
-                    const { doc, deleteDoc } = fbLibs.fs;
-                    const dataRef = getCollectionRef(firebaseDb);
-                    await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
-                } else {
-                    saveLocalData(data.filter(d => !(d.school === school && d.period === period)));
-                }
+            // 💡 [해결] 개별 삭제 기능 자체 확인창 적용
+            const deleteSpecificExam = (school, grade, period) => {
+                showConfirm(`[${school} ${grade} ${period}]\n해당 시험 데이터를 완전히 삭제하시겠습니까?`, async () => {
+                    try {
+                        const idsToDelete = data.filter(d => d.school === school && d.grade === grade && d.period === period).map(d => d.id);
+                        
+                        if (isCloud && fbLibs) {
+                            const { doc, deleteDoc } = fbLibs.fs;
+                            const dataRef = getCollectionRef(firebaseDb);
+                            await Promise.all(idsToDelete.map(id => deleteDoc(doc(dataRef, String(id)))));
+                        } else {
+                            saveLocalData(data.filter(d => !(d.school === school && d.grade === grade && d.period === period)));
+                        }
+                        showAlert("성공적으로 삭제되었습니다.");
+                    } catch (error) {
+                        console.error("삭제 중 오류:", error);
+                        showAlert("삭제 중 오류가 발생했습니다.\n" + error.message);
+                    }
+                });
             };
 
-            const handleClearData = async () => {
-                if(window.confirm("모든 데이터를 초기화하시겠습니까?")) {
-                    if (isCloud && user) {
-                        const { getDocs, deleteDoc } = fbLibs.fs;
-                        const dataRef = getCollectionRef(firebaseDb);
-                        const snap = await getDocs(dataRef);
-                        await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
-                    } else saveLocalData([]);
-                    setShowManageModal(false);
-                }
+            // 💡 [해결] 전체 초기화 기능 자체 확인창 적용
+            const handleClearData = () => {
+                showConfirm("모든 데이터를 초기화하시겠습니까?\n이 작업은 복구할 수 없습니다.", async () => {
+                    try {
+                        if (isCloud && fbLibs) {
+                            const { getDocs, deleteDoc } = fbLibs.fs;
+                            const dataRef = getCollectionRef(firebaseDb);
+                            const snap = await getDocs(dataRef);
+                            await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+                        } else {
+                            saveLocalData([]);
+                        }
+                        setShowManageModal(false);
+                        showAlert("모든 데이터가 안전하게 삭제되었습니다.");
+                    } catch (error) {
+                        console.error("초기화 오류:", error);
+                        showAlert("초기화 중 오류 발생:\n" + error.message);
+                    }
+                });
             };
 
             const titleGrade = filters.grade !== '전체' ? filters.grade : '';
@@ -699,137 +644,116 @@
                      onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }} 
                      onDragOver={(e)=>e.preventDefault()} 
                      onDragLeave={(e) => { if(e.relatedTarget === null) setIsDragging(false); }}
-                     onDrop={(e)=>{e.preventDefault(); setIsDragging(false); 
-                        const files = e.dataTransfer.files;
-                        for(let i=0; i<files.length; i++) processFile(files[i]);
-                     }}>
+                     onDrop={(e)=>{e.preventDefault(); setIsDragging(false); const files = e.dataTransfer.files; for(let i=0; i<files.length; i++) processFile(files[i]); }}>
                     
+                    {/* 💡 자체 제작 커스텀 팝업창 (Alert / Confirm) */}
+                    {customDialog.isOpen && (
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[9999] p-4 font-bold backdrop-blur-sm">
+                            <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-sm w-full text-center">
+                                <Icon name={customDialog.type === 'confirm' ? 'alert-triangle' : 'check-circle'} size={56} className={`mx-auto mb-4 ${customDialog.type === 'confirm' ? 'text-orange-500' : 'text-emerald-500'}`} />
+                                <h3 className="text-lg text-slate-800 mb-8 whitespace-pre-wrap leading-relaxed tracking-tight">{customDialog.message}</h3>
+                                <div className="flex gap-3 justify-center">
+                                    {customDialog.type === 'confirm' && (
+                                        <button onClick={closeDialog} className="flex-1 bg-slate-100 text-slate-500 py-3.5 rounded-xl hover:bg-slate-200 transition-colors">취소</button>
+                                    )}
+                                    <button onClick={() => {
+                                        if (customDialog.type === 'confirm' && customDialog.onConfirm) {
+                                            customDialog.onConfirm();
+                                        }
+                                        closeDialog();
+                                    }} className={`flex-1 text-white py-3.5 rounded-xl transition-colors shadow-lg ${customDialog.type === 'confirm' ? 'bg-red-500 hover:bg-red-600' : 'bg-indigo-600 hover:bg-indigo-700'}`}>
+                                        확인
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {stagedImages.length > 0 && !isAnalyzing && !pendingData && (
-                        <div className="fixed bottom-6 right-6 bg-white rounded-2xl shadow-2xl border border-slate-200 p-5 z-[150] w-80 flex flex-col max-h-[80vh]">
+                        <div className="fixed bottom-6 right-6 bg-white rounded-2xl shadow-2xl border p-5 z-[150] w-80 flex flex-col max-h-[80vh]">
                             <div className="flex justify-between items-center mb-4">
-                                <h3 className="text-lg font-bold text-indigo-900 flex items-center gap-2">
-                                    <Icon name="image" size={20} className="text-indigo-500" /> 대기중인 이미지 ({stagedImages.length})
-                                </h3>
-                                <button onClick={() => setStagedImages([])} className="p-1 rounded-full hover:bg-slate-100 text-slate-400 transition-colors">
-                                    <Icon name="x" size={20} />
-                                </button>
+                                <h3 className="text-lg font-bold text-indigo-900 flex items-center gap-2"> <Icon name="image" size={20} className="text-indigo-500" /> 대기중 ({stagedImages.length}) </h3>
+                                <button onClick={() => setStagedImages([])} className="p-1 rounded-full hover:bg-slate-100 text-slate-400"> <Icon name="x" size={20} /> </button>
                             </div>
                             <div className="flex-1 overflow-y-auto custom-scroll flex flex-col gap-3 mb-4 pr-2">
                                 {stagedImages.map((img, idx) => (
-                                    <div key={img.id} className="relative group rounded-lg overflow-hidden border border-slate-200 shadow-sm">
+                                    <div key={img.id} className="relative group rounded-lg overflow-hidden border shadow-sm">
                                         <img src={img.dataUrl} className="w-full h-auto block" alt={`staged-${idx}`} />
-                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                            <button onClick={() => setStagedImages(prev => prev.filter(p => p.id !== img.id))} className="bg-red-500 text-white p-2 rounded-full hover:bg-red-600 shadow-lg">
-                                                <Icon name="trash-2" size={18} />
-                                            </button>
+                                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                            <button onClick={() => setStagedImages(prev => prev.filter(p => p.id !== img.id))} className="bg-red-500 text-white p-2 rounded-full shadow-lg"> <Icon name="trash-2" size={18} /> </button>
                                         </div>
                                     </div>
                                 ))}
                             </div>
-                            <button onClick={analyzeStagedImagesWithAI} className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-indigo-700 transition-transform active:scale-95 flex items-center justify-center gap-2">
-                                <Icon name="sparkles" size={20} /> {stagedImages.length}장 일괄 AI 분석
-                            </button>
+                            <button onClick={analyzeStagedImagesWithAI} className="w-full bg-indigo-600 text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-indigo-700 active:scale-95 flex items-center justify-center gap-2"> <Icon name="sparkles" size={20} /> AI 분석 시작 </button>
                         </div>
                     )}
 
                     {isAnalyzing && (
                         <div className="fixed inset-0 z-[300] bg-slate-900/80 flex flex-col items-center justify-center text-white backdrop-blur-sm">
                             <div className="loader mb-6"></div>
-                            <h2 className="text-2xl font-bold tracking-tight">AI가 시험지 이미지 {stagedImages.length}장을 분석하고 있습니다...</h2>
+                            <h2 className="text-2xl font-bold tracking-tight">AI가 데이터를 분석하고 있습니다...</h2>
                         </div>
                     )}
 
-                    {isDragging && (
-                        <div className="fixed inset-0 z-[200] bg-indigo-600/90 flex flex-col items-center justify-center text-white pointer-events-none animate-pulse backdrop-blur-sm">
-                            <Icon name="download-cloud" size={80} />
-                            <h2 className="text-3xl font-bold mt-4">엑셀/이미지 파일을 놓거나 Ctrl+V로 붙여넣으세요</h2>
-                        </div>
-                    )}
+                    {isDragging && <div className="fixed inset-0 z-[200] bg-indigo-600/90 flex flex-col items-center justify-center text-white pointer-events-none backdrop-blur-sm"><Icon name="download-cloud" size={80} /><h2 className="text-3xl font-bold mt-4">파일을 놓으세요</h2></div>}
 
                     {showManageModal && (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[110] p-4 text-slate-900">
-                            <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-2xl w-full text-slate-900">
-                                <div className="flex justify-between items-center mb-6 border-b pb-4">
-                                    <h2 className="text-2xl font-bold flex items-center gap-2"><Icon name="settings" className="text-indigo-500"/> 데이터 관리</h2>
-                                    <button onClick={() => setShowManageModal(false)}><Icon name="x-circle" size={28} className="text-slate-400"/></button>
-                                </div>
-                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide mb-6 font-normal">
-                                    {uniqueExams.length > 0 ? uniqueExams.map((exam, idx) => (
-                                        <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border">
-                                            <div>
-                                                <div className="text-indigo-600 font-bold flex items-center gap-1.5">
-                                                    <span className={`text-[9px] px-1.5 py-0.5 rounded shadow-sm ${exam.type === '중학교' ? 'bg-emerald-100 text-emerald-700' : 'bg-indigo-100 text-indigo-700'}`}>{exam.type}</span>
-                                                    {exam.school}
-                                                </div>
-                                                <div className="text-slate-500 text-sm mt-1">{exam.grade} | {exam.period} ({exam.count}Qs)</div>
-                                            </div>
-                                            <button onClick={() => deleteSpecificExam(exam.school, exam.grade, exam.period)} className="p-2 text-red-400 hover:bg-red-50 rounded-full transition-all shadow-sm"><Icon name="trash-2" size={20} /></button>
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[110] p-4 text-slate-900 font-bold backdrop-blur-sm">
+                            <div className="bg-white rounded-3xl shadow-2xl p-8 max-w-2xl w-full">
+                                <div className="flex justify-between items-center mb-6 border-b pb-4"> <h2 className="text-2xl flex items-center gap-2"><Icon name="settings" className="text-indigo-500"/> 데이터 관리</h2> <button onClick={() => setShowManageModal(false)}><Icon name="x-circle" size={28} className="text-slate-400"/></button> </div>
+                                {typeof __app_id === 'undefined' && (
+                                    <div className="mb-6 p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                                        <label className="block text-sm font-bold text-indigo-900 mb-2">Gemini API 키 (GitHub Pages)</label>
+                                        <div className="flex gap-2">
+                                            <input type="password" value={customApiKey} onChange={(e) => setCustomApiKey(e.target.value)} className="flex-1 px-3 py-2 rounded-lg border outline-none text-sm font-normal" placeholder="AIzaSy..." />
+                                            <button onClick={() => { localStorage.setItem('my_gemini_api_key', customApiKey); showAlert('API 키가 저장되었습니다.'); }} className="px-4 py-2 bg-indigo-600 text-white rounded-lg font-bold text-sm hover:bg-indigo-700">저장</button>
                                         </div>
-                                    )) : <div className="text-center py-10 text-slate-400 font-bold text-xl">등록된 데이터가 없습니다.</div>}
+                                    </div>
+                                )}
+                                <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-hide mb-6 font-normal">
+                                    {uniqueExams.map((exam, idx) => (
+                                        <div key={idx} className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border">
+                                            <div><div className="text-indigo-600 font-bold flex items-center gap-1.5"><span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-100">{exam.type}</span>{exam.school}</div><div className="text-slate-500 text-sm mt-1">{exam.grade} | {exam.period} ({exam.count}Qs)</div></div>
+                                            <button onClick={() => deleteSpecificExam(exam.school, exam.grade, exam.period)} className="p-2 text-red-400 hover:bg-red-50 rounded-full shadow-sm"><Icon name="trash-2" size={20} /></button>
+                                        </div>
+                                    ))}
                                 </div>
-                                <div className="flex gap-3 font-bold">
-                                    <button onClick={handleClearData} className="flex-1 bg-red-50 text-red-600 border-2 border-red-100 py-3 rounded-xl hover:bg-red-100 transition-colors flex items-center justify-center gap-2"><Icon name="trash-2" size={18} /> 전체 데이터 삭제</button>
-                                    <button onClick={() => setShowManageModal(false)} className="flex-1 bg-slate-800 text-white font-bold py-3 rounded-xl">닫기</button>
-                                </div>
+                                <div className="flex gap-3"> <button onClick={handleClearData} className="flex-1 bg-red-50 text-red-600 border py-3.5 rounded-xl hover:bg-red-100 flex items-center justify-center gap-2 font-bold"><Icon name="trash-2" size={18} /> 전체 삭제</button> <button onClick={() => setShowManageModal(false)} className="flex-1 bg-slate-800 text-white py-3.5 rounded-xl font-bold">닫기</button> </div>
                             </div>
                         </div>
                     )}
 
                     {pendingData && (
-                        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[120] p-4 text-slate-900">
-                            <div className="bg-white rounded-2xl p-6 max-w-5xl w-full text-center shadow-2xl flex flex-col max-h-[90vh]">
-                                <Icon name="check-circle" size={48} className="text-emerald-500 mx-auto mb-2 shrink-0" />
-                                <h2 className="text-xl font-bold mb-1 tracking-tight">AI 이미지 분석 완료</h2>
-                                <p className="font-bold text-slate-500 mb-4 text-sm shrink-0">
-                                    <span className="text-indigo-600 underline">{pendingData.items.length}개</span>의 문항을 찾았습니다. 검수 후 적용해주세요.
-                                    <br/><span className="text-emerald-600">💡 아래 표의 글자를 클릭하면 직접 바로 수정할 수 있습니다.</span>
-                                </p>
-                                <div className="flex-1 overflow-auto bg-slate-50 rounded-xl border border-slate-200 mb-6 text-left shadow-inner custom-scroll relative font-normal">
+                        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[120] p-4 text-slate-900 font-bold backdrop-blur-sm">
+                            <div className="bg-white rounded-3xl p-6 max-w-5xl w-full text-center shadow-2xl flex flex-col max-h-[90vh]">
+                                <Icon name="check-circle" size={48} className="text-emerald-500 mx-auto mb-2" />
+                                <h2 className="text-xl font-bold mb-1 tracking-tight">데이터 검수 및 적용</h2>
+                                <p className="text-sm text-slate-500 mb-4 font-normal">학년이 <span className="text-indigo-600 font-bold">'중1', '중2', '중3'</span> 형태로 잘 통일되었는지 확인하세요.</p>
+                                <div className="flex-1 overflow-auto bg-slate-50 rounded-xl border mb-6 text-left font-normal custom-scroll">
                                     <table className="w-full text-[11px] whitespace-nowrap min-w-[800px]">
-                                        <thead className="bg-slate-200/80 text-slate-600 sticky top-0 backdrop-blur-md shadow-sm z-10 font-bold">
-                                            <tr>
-                                                <th className="px-4 py-2 border-b">출제시기</th>
-                                                <th className="px-4 py-2 border-b">학교명</th>
-                                                <th className="px-4 py-2 border-b">학년</th>
-                                                <th className="px-4 py-2 border-b">과목</th>
-                                                <th className="px-4 py-2 border-b">문항번호</th>
-                                                <th className="px-4 py-2 border-b text-center">문항유형</th>
-                                                <th className="px-4 py-2 border-b">대단원</th>
-                                                <th className="px-4 py-2 border-b">소단원</th>
-                                                <th className="px-4 py-2 border-b text-center">난이도</th>
+                                        <thead className="bg-slate-200/80 sticky top-0 font-bold shadow-sm"><tr><th className="px-4 py-2">출제시기</th><th className="px-4 py-2">학교명</th><th className="px-4 py-2">학년</th><th className="px-4 py-2 text-center">번호</th><th className="px-4 py-2 text-center">유형</th><th className="px-4 py-2">대단원</th><th className="px-4 py-2">소단원</th><th className="px-4 py-2 text-center">난이도</th></tr></thead>
+                                        <tbody>{pendingData.items.map((row, idx) => (
+                                            <tr key={idx} className="hover:bg-indigo-50/50">
+                                                <td className="px-2 py-1"><input className="bg-transparent w-full text-slate-700" value={row.period} onChange={(e)=>handlePendingChange(idx, 'period', e.target.value)}/></td>
+                                                <td className="px-2 py-1"><input className="bg-transparent w-full font-bold text-indigo-700" value={row.school} onChange={(e)=>handlePendingChange(idx, 'school', e.target.value)}/></td>
+                                                <td className="px-2 py-1"><input className="bg-transparent w-full text-indigo-600 font-bold" value={row.grade} onChange={(e)=>handlePendingChange(idx, 'grade', e.target.value)}/></td>
+                                                <td className="px-2 py-1"><input className="bg-transparent w-full text-center font-bold text-indigo-900" value={row.questionNum} onChange={(e)=>handlePendingChange(idx, 'questionNum', e.target.value)}/></td>
+                                                <td className="px-2 py-1 text-center">
+                                                    <select className="bg-transparent rounded px-1 cursor-pointer font-bold text-slate-600 outline-none hover:bg-white" value={row.type} onChange={(e)=>handlePendingChange(idx, 'type', e.target.value)}>
+                                                        <option value="객관식">객관식</option>
+                                                        <option value="서술형">서술형</option>
+                                                        <option value="단답형">단답형</option>
+                                                    </select>
+                                                </td>
+                                                <td className="px-2 py-1"><input className="bg-transparent w-full text-slate-700" value={row.majorUnit} onChange={(e)=>handlePendingChange(idx, 'majorUnit', e.target.value)}/></td>
+                                                <td className="px-2 py-1"><input className="bg-transparent w-full text-slate-500" value={row.minorUnit} onChange={(e)=>handlePendingChange(idx, 'minorUnit', e.target.value)}/></td>
+                                                <td className="px-2 py-1 text-center"><select style={{backgroundColor: DIFFICULTY_COLORS[row.difficulty]}} className="text-white rounded px-2 cursor-pointer font-bold outline-none" value={row.difficulty} onChange={(e)=>handlePendingChange(idx, 'difficulty', e.target.value)}>{DIFF_LEVELS.map(l=><option key={l} value={l}>{l}</option>)}</select></td>
                                             </tr>
-                                        </thead>
-                                        <tbody className="divide-y divide-slate-200 font-bold text-slate-800">
-                                            {pendingData.items.map((row, idx) => (
-                                                <tr key={idx} className="hover:bg-indigo-50/50 transition-colors">
-                                                    <td className="px-2 py-1"><input type="text" value={row.period} onChange={(e)=>handlePendingChange(idx, 'period', e.target.value)} className="w-full min-w-[80px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-600 transition-colors"/></td>
-                                                    <td className="px-2 py-1"><input type="text" value={row.school} onChange={(e)=>handlePendingChange(idx, 'school', e.target.value)} className="w-full min-w-[80px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-indigo-700 transition-colors"/></td>
-                                                    <td className="px-2 py-1"><input type="text" value={row.grade} onChange={(e)=>handlePendingChange(idx, 'grade', e.target.value)} className="w-full min-w-[60px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-600 transition-colors"/></td>
-                                                    <td className="px-2 py-1"><input type="text" value={row.subject} onChange={(e)=>handlePendingChange(idx, 'subject', e.target.value)} className="w-full min-w-[60px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-600 transition-colors"/></td>
-                                                    <td className="px-2 py-1"><input type="text" value={row.questionNum} onChange={(e)=>handlePendingChange(idx, 'questionNum', e.target.value)} className="w-full min-w-[50px] max-w-[60px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-indigo-900 transition-colors text-center"/></td>
-                                                    <td className="px-2 py-1 text-center">
-                                                        <select value={row.type} onChange={(e)=>handlePendingChange(idx, 'type', e.target.value)} className={`px-2 py-1 rounded text-[10px] outline-none border border-transparent hover:border-slate-300 cursor-pointer text-center ${row.type === '객관식' ? 'bg-blue-100 text-blue-700' : (row.type === '서술형' ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700')}`}>
-                                                            <option value="객관식">객관식</option>
-                                                            <option value="서술형">서술형</option>
-                                                            <option value="단답형">단답형</option>
-                                                        </select>
-                                                    </td>
-                                                    <td className="px-2 py-1"><input type="text" value={row.majorUnit} onChange={(e)=>handlePendingChange(idx, 'majorUnit', e.target.value)} className="w-full min-w-[120px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-800 transition-colors"/></td>
-                                                    <td className="px-2 py-1"><input type="text" value={row.minorUnit} onChange={(e)=>handlePendingChange(idx, 'minorUnit', e.target.value)} className="w-full min-w-[150px] bg-transparent hover:bg-white border border-transparent hover:border-slate-300 focus:border-indigo-500 rounded px-2 py-1 outline-none text-slate-500 transition-colors"/></td>
-                                                    <td className="px-2 py-1 text-center">
-                                                        <select value={row.difficulty} onChange={(e)=>handlePendingChange(idx, 'difficulty', e.target.value)} className="px-2 py-1 rounded text-[10px] text-white shadow-sm outline-none border border-transparent hover:border-slate-300 cursor-pointer text-center font-bold" style={{ backgroundColor: DIFFICULTY_COLORS[row.difficulty] || '#94a3b8' }}>
-                                                            {DIFF_LEVELS.map(lvl => <option key={lvl} value={lvl} style={{backgroundColor: 'white', color: 'black'}}>{lvl}</option>)}
-                                                        </select>
-                                                    </td>
-                                                </tr>
-                                            ))}
-                                        </tbody>
+                                        ))}</tbody>
                                     </table>
                                 </div>
-                                <div className="flex gap-3 shrink-0">
-                                    <button onClick={confirmUpload} className="flex-1 bg-indigo-600 text-white font-bold py-3.5 rounded-xl shadow-lg hover:bg-indigo-700 transition-transform active:scale-95 text-lg">이상 없음, DB에 적용하기</button>
-                                    <button onClick={() => setPendingData(null)} className="w-1/3 bg-slate-200 font-bold py-3.5 rounded-xl text-slate-600 hover:bg-slate-300 transition-colors">취소</button>
-                                </div>
+                                <div className="flex gap-3 shrink-0"><button onClick={confirmUpload} className="flex-1 bg-indigo-600 text-white font-bold py-3.5 rounded-xl shadow-lg text-lg hover:bg-indigo-700 transition-colors">DB에 적용하기</button><button onClick={() => setPendingData(null)} className="w-1/3 bg-slate-200 font-bold py-3.5 rounded-xl hover:bg-slate-300 transition-colors">취소</button></div>
                             </div>
                         </div>
                     )}
@@ -841,40 +765,29 @@
                                 <span className="text-slate-400 text-[10px] border-l pl-3 ml-1 uppercase">{totalUnitsAnalyzed} Units | {totalQuestionsAnalyzed} Qs</span>
                             </div>
                             <div className="flex items-center gap-2">
-                                <input type="file" accept=".xlsx, .xls, .csv, image/png, image/jpeg, image/jpg" ref={fileInputRef} className="hidden" multiple onChange={(e) => {
-                                    for(let i=0; i<e.target.files.length; i++) processFile(e.target.files[i]);
-                                }} />
-                                <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[10px] hover:bg-indigo-100 transition-all flex items-center gap-1.5"><Icon name="upload" size={14}/>엑셀/이미지(Ctrl+V) 업로드</button>
-                                <button onClick={() => setShowManageModal(true)} className="px-3 py-1 bg-rose-50 text-rose-600 rounded-lg text-[10px] hover:bg-rose-100 transition-all shadow-sm">데이터 관리/삭제</button>
+                                <input type="file" accept=".xlsx, .xls, .csv, image/*" ref={fileInputRef} className="hidden" multiple onChange={(e) => { for(let i=0; i<e.target.files.length; i++) processFile(e.target.files[i]); }} />
+                                <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-[10px] hover:bg-indigo-100 flex items-center gap-1.5 transition-colors"><Icon name="upload" size={14}/>파일 업로드(Ctrl+V)</button>
+                                <button onClick={() => setShowManageModal(true)} className="px-3 py-1 bg-rose-50 text-rose-600 rounded-lg text-[10px] hover:bg-rose-100 shadow-sm transition-colors">데이터 관리</button>
                             </div>
                         </header>
 
-                        <section className="bg-white p-2 rounded-2xl premium-shadow border border-slate-100 flex flex-wrap gap-2 items-center">
+                        <section className="bg-white p-2 rounded-2xl premium-shadow border flex flex-wrap gap-2 items-center">
                             <select className="px-3 py-1 bg-indigo-50 border border-indigo-100 rounded-lg text-[11px] font-bold text-indigo-700 focus:outline-none cursor-pointer" value={filters.schoolType} onChange={(e) => setFilters({ schoolType: e.target.value, school: [], grade: '전체', period: '전체', majorUnit: '전체' })}>
                                 <option value="고등학교">🏫 고등학교</option>
                                 <option value="중학교">🎒 중학교</option>
                             </select>
                             <details className="relative z-50">
-                                <summary className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold cursor-pointer list-none flex items-center gap-2 text-slate-900 shadow-sm">
-                                    학교: {filters.school.length === 0 ? '선택안됨' : `${filters.school.length}개 선택`} <Icon name="chevron-down" size={10}/>
-                                </summary>
+                                <summary className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold cursor-pointer list-none flex items-center gap-2 text-slate-900 shadow-sm"> 학교: {filters.school.length === 0 ? '전체' : `${filters.school.length}개`} <Icon name="chevron-down" size={10}/> </summary>
                                 <div className="absolute top-full left-0 w-48 bg-white border shadow-xl rounded-lg mt-1 p-2 z-50 max-h-[300px] overflow-y-auto custom-scroll">
                                     {options.school.map(opt => (
                                         <label key={opt} className="flex items-center gap-2 p-1 hover:bg-indigo-50 rounded cursor-pointer font-bold">
-                                            <input type="checkbox" checked={filters.school.includes(opt)} onChange={() => {
-                                                setFilters(prev => {
-                                                    let next = [...prev.school];
-                                                    if(next.includes(opt)) next = next.filter(s => s !== opt);
-                                                    else next.push(opt);
-                                                    return {...prev, school: next, grade: '전체', period: '전체', majorUnit: '전체'};
-                                                });
-                                            }} className="rounded text-indigo-600 w-3 h-3" /><span className="text-[10px] font-normal">{opt}</span>
+                                            <input type="checkbox" checked={filters.school.includes(opt)} onChange={() => { setFilters(prev => { let next = [...prev.school]; if(next.includes(opt)) next = next.filter(s => s !== opt); else next.push(opt); return {...prev, school: next, grade: '전체', period: '전체', majorUnit: '전체'}; }); }} className="rounded text-indigo-600 w-3 h-3 cursor-pointer" /><span className="text-[10px] font-normal">{opt}</span>
                                         </label>
                                     ))}
                                 </div>
                             </details>
-                            {[{ key: 'grade', label: '학년', reset: { period: '전체', majorUnit: '전체' } }, { key: 'period', label: '시기', reset: { majorUnit: '전체' } }, { key: 'majorUnit', label: '단원', reset: {} }].map(({ key, label, reset }) => (
-                                <select key={key} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold focus:outline-none text-slate-600 shadow-sm" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value, ...reset }))}>
+                            {[{ key: 'grade', label: '학년' }, { key: 'period', label: '시기' }, { key: 'majorUnit', label: '단원' }].map(({ key, label }) => (
+                                <select key={key} className="px-3 py-1 bg-slate-50 border rounded-lg text-[10px] font-bold focus:outline-none text-slate-600 shadow-sm cursor-pointer" value={filters[key]} onChange={(e) => setFilters(prev => ({ ...prev, [key]: e.target.value }))}>
                                     <option value="전체">{label}</option>
                                     {options[key].filter(o=>o!=='전체').map(opt => <option key={opt} value={opt} className="font-normal">{opt}</option>)}
                                 </select>
@@ -887,44 +800,90 @@
                             ))}
                         </div>
 
-                        <div className="bg-white rounded-3xl premium-shadow border border-slate-100 p-2 flex flex-col gap-1">
-                            {filters.school.length === 0 ? (
+                        <div className="bg-white rounded-3xl premium-shadow border p-2 min-h-[500px]">
+                            {activeTab === 'ai-recommend' ? (
+                                <div className="p-6 flex flex-col items-center">
+                                    <div className="max-w-md w-full bg-slate-50 rounded-2xl p-6 border border-slate-200 shadow-sm mb-8">
+                                        <h3 className="text-lg font-bold text-indigo-900 mb-6 flex items-center gap-2"><Icon name="sparkles" size={20} className="text-emerald-500" /> 기출문제 추천 설정</h3>
+                                        <div className="space-y-4">
+                                            <div>
+                                                <label className="block text-sm font-bold text-slate-600 mb-1">대상 학년</label>
+                                                <select className="w-full p-2 bg-white border rounded-lg font-bold text-slate-700" value={recommendParams.grade} onChange={(e)=>setRecommendParams(p=>({...p, grade: e.target.value}))}>
+                                                    <option value="전체">전체 학년</option>
+                                                    {[...new Set(data.map(d=>d.grade))].filter(g=>g!=='-').map(g=><option key={g} value={g}>{g}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-bold text-slate-600 mb-1">시험 시기</label>
+                                                <select className="w-full p-2 bg-white border rounded-lg font-bold text-slate-700" value={recommendParams.period} onChange={(e)=>setRecommendParams(p=>({...p, period: e.target.value}))}>
+                                                    <option value="전체">전체 시기</option>
+                                                    {[...new Set(data.map(d=>d.period))].map(p=><option key={p} value={p}>{p}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-sm font-bold text-slate-600 mb-1">목표 평균 난이도: <span className="text-indigo-600 text-lg ml-1">{recommendParams.diff}</span></label>
+                                                <input type="range" min="1" max="8" step="0.1" className="w-full h-2 bg-indigo-100 rounded-lg appearance-none cursor-pointer accent-indigo-600" value={recommendParams.diff} onChange={(e)=>setRecommendParams(p=>({...p, diff: parseFloat(e.target.value)}))} />
+                                                <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-bold"><span>쉬움(1)</span><span>중간(4.5)</span><span>매우어려움(8)</span></div>
+                                            </div>
+                                            <div className="flex items-center gap-2 p-3 bg-white border rounded-xl shadow-sm">
+                                                <input type="checkbox" id="preferBalanced" className="w-4 h-4 accent-emerald-500 cursor-pointer" checked={recommendParams.preferBalanced} onChange={(e)=>setRecommendParams(p=>({...p, preferBalanced: e.target.checked}))} />
+                                                <label htmlFor="preferBalanced" className="text-sm font-bold text-slate-700 cursor-pointer">난이도 분포가 고른 학교 우선 추천</label>
+                                            </div>
+                                            <button onClick={handleRecommend} className="w-full py-3.5 bg-indigo-600 text-white rounded-xl font-bold shadow-lg hover:bg-indigo-700 active:scale-95 flex items-center justify-center gap-2 mt-4 transition-transform"><Icon name="search" size={18}/> 맞춤 학교 추천받기</button>
+                                        </div>
+                                    </div>
+                                    {recommendResults.length > 0 ? (
+                                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full px-4">
+                                            {recommendResults.map((res, i) => (
+                                                <div key={i} className="bg-white border-2 border-indigo-50 rounded-2xl p-4 shadow-sm hover:border-indigo-300 transition-all">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <span className="text-[10px] px-2 py-0.5 bg-emerald-50 text-emerald-600 rounded-full font-bold">Best Match #{i+1}</span>
+                                                        <div className="flex flex-col items-end"> <span className="text-[11px] text-slate-400 font-bold">{res.count}문항</span> {res.stdDev < 1.0 && <span className="text-[9px] text-emerald-500 font-bold flex items-center gap-0.5"><Icon name="award" size={10}/> 고른 분포</span>} </div>
+                                                    </div>
+                                                    <h4 className="text-xl font-black text-slate-800 mb-1">{res.school}</h4>
+                                                    <p className="text-xs text-slate-500 mb-4">{res.grade} | {res.period}</p>
+                                                    <div className="flex items-center justify-between bg-indigo-50 p-3 rounded-xl">
+                                                        <div><p className="text-[10px] text-indigo-400 uppercase">평균 난이도</p><p className="text-lg font-black text-indigo-700">{res.avgDiff.toFixed(2)}</p></div>
+                                                        <div className="text-right"> <p className="text-[10px] text-slate-400">분포 편차</p> <p className="text-sm font-bold text-slate-600">±{res.stdDev.toFixed(2)}</p> </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : <div className="text-slate-300 py-20 flex flex-col items-center"> <Icon name="info" size={48} className="mb-4 text-slate-200"/> <p>조건을 설정하고 추천 버튼을 눌러주세요.</p> </div>}
+                                </div>
+                            ) : filters.school.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center min-h-[460px] text-slate-400 font-bold">
-                                    <Icon name="search" size={48} className="mb-4 text-slate-200" /> 학교를 선택하여 분석 데이터를 확인하세요.
+                                    <Icon name="search" size={48} className="mb-4 text-slate-200" /> 
+                                    분석할 학교를 먼저 선택해주세요.
                                 </div>
                             ) : (
                                 <>
                                     {activeTab === 'unit-analysis' && (
                                         <div className="flex flex-col lg:flex-row gap-2 w-full">
-                                            <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center border-r border-slate-50 min-h-[460px] justify-center">
-                                                <div className="text-[14px] font-bold text-indigo-900 mb-2 flex items-center gap-2 tracking-tight"><Icon name="pie-chart" size={18} className="text-indigo-400" /> 단원별 출제 비중</div>
+                                            <div className="flex-1 border-r border-slate-50 min-h-[460px] flex flex-col items-center justify-center">
+                                                <h4 className="text-[14px] font-bold text-indigo-900 mb-2 flex items-center gap-2"><Icon name="pie-chart" size={18} /> 단원별 출제 비중</h4>
                                                 <div className="w-full flex flex-wrap justify-center items-start">
-                                                    {chartRenderList.map((key) => {
+                                                    {chartRenderList.map(key => {
                                                         const pieData = unitDistribution.map((item, i) => ({ name: item.unit, value: isComparing ? (item[key]?.total || 0) : (item.single?.total || 0), color: UNIT_COLORS[i % UNIT_COLORS.length] })).filter(d => d.value > 0);
-                                                        const chartTitle = isComparing ? `${key} ${titleGrade} ${titlePeriod}`.trim() : `${filters.school[0]} ${titleGrade} ${titlePeriod}`.trim();
-                                                        return <DonutChartSVG key={key} data={pieData} title={chartTitle} totalQuestions={pieData.reduce((s,c)=>s+c.value,0)} />;
+                                                        return <DonutChartSVG key={key} data={pieData} title={isComparing ? key : (filters.school[0] || '전체')} totalQuestions={pieData.reduce((s,c)=>s+c.value,0)} />;
                                                     })}
                                                 </div>
                                             </div>
-                                            <div className="flex-1 w-full lg:w-1/2 flex flex-col items-center min-h-[460px] justify-center text-slate-900">
-                                                <div className="text-[14px] font-bold text-emerald-900 mb-2 flex items-center gap-2 tracking-tight"><Icon name="layers" size={18} className="text-emerald-400" /> 단원별 난이도 세부 구조</div>
+                                            <div className="flex-1 min-h-[460px] flex flex-col items-center justify-center">
+                                                <h4 className="text-[14px] font-bold text-emerald-900 mb-2 flex items-center gap-2"><Icon name="layers" size={18} /> 단원별 난이도 구조</h4>
                                                 <div className="flex relative w-full pt-1 h-[400px]">
-                                                    <div className="absolute left-0 top-1 bottom-[5.5rem] w-8 flex flex-col justify-between items-end text-[10px] font-bold text-slate-300 border-r-2 border-slate-50 pr-2">{[7,6,5,4,3,2,1,0].map(n => <span key={n}>{n}</span>)}</div>
+                                                    <div className="absolute left-0 top-1 bottom-[5.5rem] w-8 flex flex-col justify-between items-end text-[10px] text-slate-300 border-r-2 pr-2">{[7,6,5,4,3,2,1,0].map(n => <span key={n}>{n}</span>)}</div>
                                                     <div className="ml-10 flex-1 flex items-end justify-around gap-2 overflow-x-auto pb-[5.5rem] pr-2 scrollbar-hide">
                                                         {unitDistribution.map((item, idx) => (
-                                                            <div key={idx} className="flex flex-col items-center h-full justify-end min-w-[50px] max-w-[80px] w-full relative">
-                                                                <div className="w-10 h-full bg-slate-50 rounded-full inner-capsule flex flex-col justify-end p-1 overflow-hidden shadow-sm">
-                                                                    <div className="w-full h-full flex flex-col justify-end rounded-full overflow-hidden">
-                                                                        {DIFF_LEVELS.slice().reverse().map(diff => {
-                                                                            const count = isComparing ? item[activeSchools[0]]?.[diff] : item.single?.[diff];
-                                                                            if (!count) return null;
-                                                                            return <div key={diff} className="w-full flex items-center justify-center border-b border-white/20 last:border-b-0 relative shadow-sm" style={{ height: `${count/7*100}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}><span className="text-[10px] text-white font-bold">{count}</span></div>
-                                                                        })}
-                                                                    </div>
+                                                            <div key={idx} className="flex flex-col items-center h-full justify-end min-w-[50px] w-full relative">
+                                                                <div className="w-10 h-full bg-slate-50 rounded-full flex flex-col justify-end p-1 overflow-hidden shadow-sm">
+                                                                    {DIFF_LEVELS.slice().reverse().map(diff => {
+                                                                        const count = isComparing ? item[activeSchools[0]]?.[diff] : item.single?.[diff];
+                                                                        if (!count) return null;
+                                                                        return <div key={diff} className="w-full flex items-center justify-center border-b border-white/20" style={{ height: `${count/7*100}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}><span className="text-[10px] text-white font-bold">{count}</span></div>
+                                                                    })}
                                                                 </div>
-                                                                <div className="absolute top-[100%] pt-2 left-1/2 -translate-x-1/2 w-[160%] flex flex-col items-center text-[11px] font-bold text-slate-700 text-center leading-tight tracking-tight">
-                                                                    {item.unit.split(' ').map((w,i)=><React.Fragment key={i}>{w}<br/></React.Fragment>)}
-                                                                </div>
+                                                                <div className="absolute top-[100%] pt-2 text-[11px] text-slate-700 text-center leading-tight">{item.unit.split(' ').map((w,i)=><div key={i}>{w}</div>)}</div>
                                                             </div>
                                                         ))}
                                                     </div>
@@ -933,51 +892,30 @@
                                         </div>
                                     )}
                                     {activeTab === 'level-count' && (
-                                        <div className="flex flex-col items-center w-full p-4 min-h-[550px] justify-center relative">
-                                            <div className="flex flex-col items-center mb-12 gap-2 text-center">
-                                                <div className="text-[24px] font-bold text-slate-800 tracking-tight">
-                                                    {filters.school.join(', ')} {filters.grade !== '전체' ? filters.grade : '전체 학년'} {filters.period !== '전체' ? filters.period : '전체 시기'}
-                                                </div>
-                                                <div className="text-[16px] font-bold text-indigo-900 flex items-center gap-2">
-                                                    <Icon name="activity" size={20} className="text-emerald-500" /> [전체 문항대비 난이도비율]
-                                                </div>
-                                            </div>
-                                            <div className="flex flex-row w-full max-w-[60%] mx-auto relative h-[350px]">
-                                                <div className="absolute left-[-60px] top-0 bottom-12 w-14 border-r-2 border-slate-300 text-[11px] font-bold text-slate-400 z-10">
-                                                    <span className="absolute top-0 right-3 -translate-y-1/2">50%</span>
-                                                    <span className="absolute top-1/2 right-3 -translate-y-1/2">25%</span>
-                                                    <span className="absolute bottom-0 right-3 translate-y-1/2">0%</span>
-                                                </div>
-                                                <div className="flex-1 relative flex flex-col">
-                                                    <div className="absolute top-0 left-0 w-full border-t border-dashed border-slate-200 z-0"></div>
-                                                    <div className="absolute top-1/2 left-0 w-full border-t border-dashed border-slate-200 z-0"></div>
-                                                    <div className="absolute bottom-12 left-0 right-0 h-[2px] bg-slate-300 z-20"></div>
-                                                    <div className="flex-1 w-full grid grid-cols-8 gap-0 relative z-10 items-end mb-12">
+                                        <div className="flex flex-col items-center w-full p-4 min-h-[500px] justify-center">
+                                            <h2 className="text-[24px] font-black text-slate-800 text-center mb-8"> {filters.school.join(', ')} {titleGrade} {titlePeriod} 난이도 비율 </h2>
+                                            <div className="flex flex-row w-full max-w-[60%] mx-auto h-[350px] relative">
+                                                <div className="absolute left-[-50px] top-0 bottom-12 w-10 border-r-2 text-[11px] text-slate-400 font-bold flex flex-col justify-between items-end pr-2"><span>50%</span><span>25%</span><span>0%</span></div>
+                                                <div className="flex-1 relative flex flex-col border-b-2 border-slate-300 mb-12">
+                                                    <div className="flex-1 w-full grid grid-cols-8 items-end">
                                                         {difficultyDistribution.map((item, idx) => {
                                                             const count = isComparing ? (item[activeSchools[0]] || 0) : (item.count || 0);
                                                             const total = isComparing ? (schoolTotals[activeSchools[0]] || 1) : (schoolTotals.single || 1);
-                                                            const actualPct = total > 0 ? (count / total) * 100 : 0;
-                                                            const visualPct = Math.min((actualPct / 50) * 100, 100); 
+                                                            const pct = total > 0 ? (count/total)*100 : 0;
                                                             return (
                                                                 <div key={idx} className="flex flex-col items-center justify-end h-full w-full relative">
-                                                                    <div className="w-full flex flex-col justify-end items-center relative transition-all duration-700" style={{ height: `${Math.max(visualPct, 1)}%` }}>
-                                                                        {actualPct > 0 && <span className="absolute -top-7 text-[12px] font-bold text-slate-700 bg-white/90 px-1.5 py-0.5 rounded border border-slate-200 shadow-sm z-30 whitespace-nowrap">{actualPct.toFixed(1)}%</span>}
-                                                                        {actualPct > 0 && (
-                                                                            <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full drop-shadow-2xl overflow-visible">
-                                                                                <path d="M 0 100 C 20 100, 35 0, 50 0 C 65 0, 80 100, 100 100 Z" fill={DIFFICULTY_COLORS[item.level]} fillOpacity="0.9" className="transition-all hover:brightness-105" />
-                                                                            </svg>
-                                                                        )}
-                                                                        {actualPct > 0 && <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none font-bold text-white text-base drop-shadow-lg">{count}</div>}
+                                                                    <div className="w-full flex flex-col justify-end items-center relative" style={{ height: `${Math.min((pct/50)*100, 100)}%` }}>
+                                                                        {pct > 0 && <span className="absolute -top-7 text-[12px] font-bold text-slate-700 bg-white px-1.5 py-0.5 rounded border shadow-sm">{pct.toFixed(1)}%</span>}
+                                                                        <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full drop-shadow-lg"><path d="M 0 100 C 20 100, 35 0, 50 0 C 65 0, 80 100, 100 100 Z" fill={DIFFICULTY_COLORS[item.level]} fillOpacity="0.9" /></svg>
+                                                                        {pct > 0 && <span className="absolute inset-0 flex items-center justify-center font-bold text-white text-base drop-shadow-lg">{count}</span>}
                                                                     </div>
                                                                 </div>
                                                             )
                                                         })}
                                                     </div>
-                                                    <div className="absolute bottom-0 left-0 right-0 h-12 grid grid-cols-8 gap-0 font-bold">
+                                                    <div className="absolute top-[100%] left-0 right-0 h-12 grid grid-cols-8">
                                                         {difficultyDistribution.map((item, idx) => (
-                                                            <div key={idx} className="flex flex-col items-center justify-center">
-                                                                <div className="w-[90%] text-[10px] text-slate-800 p-1 rounded text-center leading-tight shadow-sm border-t-4 bg-white" style={{ borderTopColor: DIFFICULTY_COLORS[item.level] }}>{DIFF_LABELS[item.level]}</div>
-                                                            </div>
+                                                            <div key={idx} className="flex justify-center mt-2"><div className="w-[90%] text-[10px] text-slate-800 p-1 rounded text-center border-t-4 bg-white shadow-sm" style={{ borderTopColor: DIFFICULTY_COLORS[item.level] }}>{DIFF_LABELS[item.level]}</div></div>
                                                         ))}
                                                     </div>
                                                 </div>
@@ -985,77 +923,56 @@
                                         </div>
                                     )}
                                     {activeTab === 'school-diff' && (
-                                        <div className="flex flex-col items-center w-full p-4 min-h-[460px] justify-center relative">
-                                            <div className="flex flex-col items-center gap-3 mb-8 w-full">
-                                                <div className="text-[24px] font-bold text-slate-800 tracking-tight">{filters.period !== '전체' ? filters.period : '전체 시기'}</div>
-                                                <div className="flex items-center gap-4">
-                                                    <div className="text-[16px] font-bold text-indigo-900 flex items-center gap-2"><Icon name="school" size={20} className="text-indigo-500" /> 학교별 종합 난이도 분포</div>
-                                                    <label className="flex items-center gap-1.5 cursor-pointer bg-orange-50 px-2.5 py-1 rounded-md border border-orange-200 font-bold text-[12px] text-orange-700">
-                                                        <input type="checkbox" checked={showHighDiff} onChange={(e) => setShowHighDiff(e.target.checked)} className="rounded text-orange-600 w-3.5 h-3.5" /> 고난도
-                                                    </label>
-                                                </div>
-                                            </div>
-                                            <div className="flex gap-6 overflow-x-auto w-full pb-6 custom-scroll justify-start px-4">
-                                                {schoolVerticalData.map((row) => {
-                                                    const highDiffPct = row.total > 0 ? (['5', '6', '7', '8'].reduce((sum, lvl) => sum + (row.diffCounts[lvl] || 0), 0) / row.total) * 100 : 0;
-                                                    return (
-                                                        <div key={row.school} className="min-w-[200px] max-w-[200px] bg-white rounded-2xl border-2 border-slate-100 p-4 flex flex-col items-center shadow-sm hover:border-indigo-200 flex-shrink-0">
-                                                            <div className="flex flex-col items-center gap-1 mb-4 w-full">
-                                                                <div className="flex items-baseline gap-1 font-bold">
-                                                                    <span className="text-[14px] text-slate-800 truncate">{row.school}</span>
-                                                                    <span className="text-[13px] text-black">({row.total}문항)</span>
-                                                                </div>
-                                                                <div className="text-[11px] font-bold text-slate-500">
-                                                                    {filters.grade !== '전체' ? filters.grade : '전체 학년'} {filters.period !== '전체' ? filters.period : '전체 시기'}
-                                                                </div>
-                                                            </div>
-                                                            <div className="relative w-full h-[180px] border-b-2 border-slate-50 flex items-end justify-center gap-1.5 mt-2">
-                                                                {showHighDiff && highDiffPct > 0 && <div className="absolute top-0 right-1 -translate-y-1/2 z-30 font-bold text-[14px] tracking-tighter text-orange-700 bg-orange-50/90 px-2 py-0.5 rounded shadow-sm border border-orange-300">고난도 {highDiffPct.toFixed(1).replace('.0', '')}%</div>}
-                                                                <div className="absolute top-0 left-0 w-full border-t border-dashed border-slate-300"><span className="absolute -top-4 left-0 text-[9px] font-bold text-slate-400">50%</span></div>
-                                                                <div className="absolute top-1/2 left-0 w-full border-t border-dashed border-slate-200"><span className="absolute -top-4 left-0 text-[9px] font-bold text-slate-400">25%</span></div>
-                                                                {DIFF_LEVELS.map(diff => {
-                                                                    const actualPct = row.total > 0 ? ((row.diffCounts[diff] || 0) / row.total) * 100 : 0;
-                                                                    const visualHeight = Math.min((actualPct / 50) * 100, 100); 
-                                                                    return <div key={diff} className="flex-1 h-full flex flex-col justify-end relative z-10"><div className="w-full transition-all duration-500 shadow-sm border-t border-white/20" style={{ height: `${actualPct > 0 ? Math.max(visualHeight, 2) : 0}%`, backgroundColor: DIFFICULTY_COLORS[diff] }}></div></div>
-                                                                })}
-                                                            </div>
+                                        <div className="p-4 overflow-x-auto custom-scroll flex gap-6 pb-6">
+                                            {schoolVerticalData.map((row) => {
+                                                const highPct = row.total > 0 ? (['5','6','7','8'].reduce((s,l)=>s+(row.diffCounts[l]||0),0)/row.total)*100 : 0;
+                                                return (
+                                                    <div key={row.school} className="min-w-[200px] bg-white rounded-2xl border-2 p-4 flex flex-col items-center shadow-sm hover:border-indigo-300">
+                                                        <div className="text-center mb-4"><div className="font-black text-slate-800">{row.school}</div><div className="text-[11px] text-slate-400 font-bold">{row.total}문항</div></div>
+                                                        <div className="relative w-full h-[200px] border-b-2 flex items-end justify-center gap-1">
+                                                            {showHighDiff && highPct > 0 && <div className="absolute top-0 text-[12px] font-black text-orange-600 bg-orange-50 px-2 py-0.5 rounded border border-orange-200">고난도 {highPct.toFixed(1)}%</div>}
+                                                            {DIFF_LEVELS.map(l => {
+                                                                const h = row.total > 0 ? ((row.diffCounts[l]||0)/row.total)*200 : 0;
+                                                                return <div key={l} className="flex-1" style={{height: h, backgroundColor: DIFFICULTY_COLORS[l]}}></div>
+                                                            })}
                                                         </div>
-                                                    )
-                                                })}
-                                            </div>
+                                                    </div>
+                                                )
+                                            })}
                                         </div>
                                     )}
                                 </>
                             )}
                         </div>
 
-                        <section className="bg-white rounded-3xl premium-shadow border border-slate-100 overflow-hidden mt-1 font-bold">
-                            <div className="p-3 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 text-slate-900">
-                                <h3 className="text-[14px] flex items-center gap-2"><Icon name="list" size={18} className="text-slate-400" />
-                                    {filters.school.length > 0 ? `[${filters.school.join(', ')}] ` : ''} {filters.grade !== '전체' ? `[${filters.grade}] ` : ''} {filters.period !== '전체' ? `[${filters.period}] ` : ''} 상세 문항 리스트
-                                </h3>
+                        <section className="bg-white rounded-3xl premium-shadow border overflow-hidden mt-1 font-bold">
+                            <div className="p-3 border-b bg-slate-50/50 flex justify-between items-center text-slate-900">
+                                <h3 className="text-[14px] flex items-center gap-2"><Icon name="list" size={18} className="text-slate-400" /> 상세 문항 리스트 {filters.school.length > 0 ? `[${filters.school.join(',')}]` : ''} {filters.grade !== '전체' ? `[${filters.grade}]` : ''}</h3>
                                 <span className="text-[10px]">Total {filters.school.length === 0 ? 0 : filteredData.length}</span>
                             </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-left text-[11px] whitespace-nowrap text-slate-900">
-                                    <thead className="bg-slate-50 text-slate-400 uppercase tracking-tighter shadow-sm">
-                                        <tr><th className="px-6 py-2">번호</th><th className="px-6 py-2 text-center">문제유형</th><th className="px-6 py-2">대단원</th><th className="px-6 py-2">소단원</th><th className="px-6 py-2 text-center">난이도</th></tr>
-                                    </thead>
+                            <div className="overflow-x-auto font-normal">
+                                <table className="w-full text-left text-[11px] whitespace-nowrap">
+                                    <thead className="bg-slate-50 text-slate-400 uppercase shadow-sm font-bold"><tr><th className="px-6 py-2">번호</th><th className="px-6 py-2 text-center">유형</th><th className="px-6 py-2">대단원</th><th className="px-6 py-2">소단원</th><th className="px-6 py-2 text-center">난이도</th></tr></thead>
                                     <tbody className="divide-y divide-slate-50">
-                                        {filters.school.length === 0 ? <tr><td colSpan="5" className="px-6 py-10 text-center text-slate-400">학교를 선택하면 문항 리스트가 표시됩니다.</td></tr> :
-                                            filteredData.map(row => {
-                                                const lvl = String(row.difficulty || '').match(/[1-8]/)?.[0] || '4';
-                                                return (
-                                                    <tr key={row.id} className="hover:bg-slate-50 transition-colors">
-                                                        <td className="px-6 py-1.5 text-indigo-900">{row.questionNum}번</td>
-                                                        <td className="px-6 py-1.5 text-center"><span className={`px-2 py-0.5 rounded text-[10px] ${row.type === '객관식' ? 'bg-blue-50 text-blue-600' : (row.type === '서술형' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600')}`}>{row.type && row.type !== '-' ? row.type : '단답형'}</span></td>
-                                                        <td className="px-6 py-1.5 text-slate-700">{row.majorUnit}</td>
-                                                        <td className="px-6 py-1.5 text-slate-500">{row.minorUnit}</td>
-                                                        <td className="px-6 py-1.5 text-center"><span className="px-2 py-0.5 rounded-full text-[10px] text-white shadow-sm" style={{ backgroundColor: DIFFICULTY_COLORS[lvl] }}>{DIFF_LABELS[lvl]}</span></td>
-                                                    </tr>
-                                                )
-                                            })
-                                        }
+                                        {filters.school.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="5" className="px-6 py-10 text-center text-slate-400 font-bold">
+                                                    학교를 선택하면 문항 리스트가 표시됩니다.
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredData.map(row => (
+                                                <tr key={row.id} className="hover:bg-slate-50">
+                                                    <td className="px-6 py-1.5 text-indigo-900 font-bold">{row.questionNum}번</td>
+                                                    <td className="px-6 py-1.5 text-center">
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${row.type === '객관식' ? 'bg-blue-50 text-blue-600' : (row.type === '서술형' ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600')}`}>{row.type || '단답형'}</span>
+                                                    </td>
+                                                    <td className="px-6 py-1.5 text-slate-700">{row.majorUnit}</td>
+                                                    <td className="px-6 py-1.5 text-slate-500">{row.minorUnit}</td>
+                                                    <td className="px-6 py-1.5 text-center"><span className="px-2 py-0.5 rounded-full text-white text-[10px] font-bold" style={{backgroundColor: DIFFICULTY_COLORS[row.difficulty]}}>{DIFF_LABELS[row.difficulty]}</span></td>
+                                                </tr>
+                                            ))
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
